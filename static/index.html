@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StudyFlow — 学習時間トラッカー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="13" stroke="url(#lg)" stroke-width="2"/>
+        <path d="M14 7v7l4 4" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/>
+        <defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="28" y2="28">
+            <stop stop-color="#6366F1"/><stop offset="1" stop-color="#8B5CF6"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span>StudyFlow</span>
+    </div>
+    <div class="header-right">
+      <span id="header-date" class="header-date"></span>
+      <div id="header-session-badge" class="session-badge hidden">
+        <span class="pulse-dot"></span>
+        <span id="header-timer">00:00:00</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Hero ───────────────────────────────────────────── -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+
+      <div class="touch-card">
+        <div class="touch-status" id="touch-status">学習を始めましょう</div>
+        <div class="touch-wrap">
+          <button id="touch-btn" class="touch-btn idle" onclick="toggleSession()">
+            <div class="touch-btn-inner">
+              <span class="touch-icon">
+                <svg id="touch-icon-svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+                  <path d="M18 6v12M18 6l-5 5M18 6l5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M6 18c0 6.627 5.373 12 12 12s12-5.373 12-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="touch-label" id="touch-label">START</span>
+              <span class="touch-sub" id="touch-sub">タッチして開始</span>
+            </div>
+          </button>
+        </div>
+        <div class="live-timer">
+          <span class="live-timer-label">経過時間</span>
+          <span class="live-timer-value" id="live-timer-value">—</span>
+        </div>
+      </div>
+
+      <div class="today-stats">
+        <div class="stat-card today-card">
+          <div class="stat-icon">📅</div>
+          <div class="stat-body">
+            <div class="stat-label">今日の学習</div>
+            <div class="stat-value" id="today-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
+          </div>
+        </div>
+        <div class="stat-card weekly-card">
+          <div class="stat-icon">📊</div>
+          <div class="stat-body">
+            <div class="stat-label">今週の合計</div>
+            <div class="stat-value" id="weekly-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
+          </div>
+        </div>
+        <div class="stat-card monthly-card">
+          <div class="stat-icon">🗓️</div>
+          <div class="stat-body">
+            <div class="stat-label">今月の合計</div>
+            <div class="stat-value" id="monthly-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
+          </div>
+        </div>
+        <div class="stat-card streak-card">
+          <div class="stat-icon">🔥</div>
+          <div class="stat-body">
+            <div class="stat-label">直近30日 学習日数</div>
+            <div class="stat-value" id="streak-value">0<span class="stat-unit">日</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Calendar ───────────────────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">学習カレンダー</h2>
+      <div class="cal-nav">
+        <button class="cal-nav-btn" onclick="changeMonth(-1)">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span id="cal-title" class="cal-title"></span>
+        <button class="cal-nav-btn" onclick="changeMonth(1)">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="calendar-wrap">
+      <div class="cal-dow-labels">
+        <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+      <div class="cal-color-legend">
+        <span class="legend-label">少</span>
+        <div class="legend-swatch s0"></div><div class="legend-swatch s1"></div>
+        <div class="legend-swatch s2"></div><div class="legend-swatch s3"></div>
+        <div class="legend-swatch s4"></div>
+        <span class="legend-label">多</span>
+      </div>
+    </div>
+    <div id="day-detail" class="day-detail hidden">
+      <div class="day-detail-header">
+        <span id="day-detail-title"></span>
+        <button class="close-btn" onclick="closeDayDetail()">×</button>
+      </div>
+      <div id="day-detail-body"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Charts ─────────────────────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">曜日別分析</h2>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-card-title">曜日別 平均学習時間</div>
+        <div class="chart-wrap"><canvas id="dow-chart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">直近30日 日別学習時間</div>
+        <div class="chart-wrap"><canvas id="daily-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── History ─────────────────────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">学習履歴</h2>
+      <span class="history-count" id="history-count"></span>
+    </div>
+    <div id="history-list" class="history-list"></div>
+    <div id="history-more" class="history-more hidden">
+      <button class="load-more-btn" onclick="loadMoreHistory()">さらに読み込む</button>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <span>StudyFlow · あなたの学習記録</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
