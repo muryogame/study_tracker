@@ -15,17 +15,17 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 # 本番: DATABASE_URL 環境変数 (PostgreSQL)
 # ローカル: SQLite
 _db_url = os.environ.get("DATABASE_URL", "")
-if _db_url.startswith("postgres://"):          # Render は postgres:// で来るので修正
+if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+# sslmode が URL に含まれていなければ付加
+if _db_url and "sslmode" not in _db_url:
+    sep = "&" if "?" in _db_url else "?"
+    _db_url = f"{_db_url}{sep}sslmode=require"
 
 IS_PG = bool(_db_url)
 
 if IS_PG:
-    # Supabase は SSL 必須
-    engine = create_engine(
-        _db_url,
-        connect_args={"sslmode": "require"},
-    )
+    engine = create_engine(_db_url)
 else:
     _sqlite_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "study.db")
     engine = create_engine(
