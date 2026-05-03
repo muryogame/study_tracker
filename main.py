@@ -21,7 +21,11 @@ if _db_url.startswith("postgres://"):          # Render は postgres:// で来�
 IS_PG = bool(_db_url)
 
 if IS_PG:
-    engine = create_engine(_db_url)
+    # Supabase は SSL 必須
+    engine = create_engine(
+        _db_url,
+        connect_args={"sslmode": "require"},
+    )
 else:
     _sqlite_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "study.db")
     engine = create_engine(
