@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>StudyFlow — 学習時間トラッカー</title>
+<meta name="description" content="タッチひとつで学習時間を記録。カレンダーで振り返り、継続をサポートする無料の学習トラッカー。" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -19,11 +20,7 @@
       <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
         <circle cx="14" cy="14" r="13" stroke="url(#lg)" stroke-width="2"/>
         <path d="M14 7v7l4 4" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/>
-        <defs>
-          <linearGradient id="lg" x1="0" y1="0" x2="28" y2="28">
-            <stop stop-color="#6366F1"/><stop offset="1" stop-color="#8B5CF6"/>
-          </linearGradient>
-        </defs>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#6366F1"/><stop offset="1" stop-color="#8B5CF6"/></linearGradient></defs>
       </svg>
       <span>StudyFlow</span>
     </div>
@@ -41,7 +38,6 @@
 <section class="hero">
   <div class="container">
     <div class="hero-grid">
-
       <div class="touch-card">
         <div class="touch-status" id="touch-status">学習を始めましょう</div>
         <div class="touch-wrap">
@@ -63,7 +59,6 @@
           <span class="live-timer-value" id="live-timer-value">—</span>
         </div>
       </div>
-
       <div class="today-stats">
         <div class="stat-card today-card">
           <div class="stat-icon">📅</div>
@@ -94,10 +89,12 @@
           </div>
         </div>
       </div>
-
     </div>
   </div>
 </section>
+
+<!-- ── AdSense バナー① ─────────────────────────────────── -->
+<div id="ad-slot-1" class="ad-slot container"></div>
 
 <!-- ── Calendar ───────────────────────────────────────── -->
 <section class="section">
@@ -137,6 +134,22 @@
   </div>
 </section>
 
+<!-- ── おすすめ学習グッズ（アフィリエイト） ────────────── -->
+<section class="section affiliate-section">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">📚 おすすめ学習グッズ</h2>
+      <span class="affiliate-note">※ Amazonアソシエイト広告を含みます</span>
+    </div>
+    <div id="affiliate-grid" class="affiliate-grid">
+      <!-- JS で生成 -->
+    </div>
+  </div>
+</section>
+
+<!-- ── AdSense バナー② ─────────────────────────────────── -->
+<div id="ad-slot-2" class="ad-slot container"></div>
+
 <!-- ── Charts ─────────────────────────────────────────── -->
 <section class="section">
   <div class="container">
@@ -170,8 +183,24 @@
   </div>
 </section>
 
+<!-- ── サポート（寄付） ───────────────────────────────── -->
+<section class="section support-section" id="support-section">
+  <div class="container">
+    <div class="support-card">
+      <div class="support-emoji">☕</div>
+      <h2 class="support-title">StudyFlow を応援する</h2>
+      <p class="support-desc">このアプリが役に立ったら、コーヒー1杯分のサポートをお願いします。<br>継続的な開発・改善の励みになります。</p>
+      <div class="support-buttons" id="support-buttons">
+        <!-- JS で生成 -->
+      </div>
+    </div>
+  </div>
+</section>
+
 <footer class="footer">
-  <span>StudyFlow · あなたの学習記録</span>
+  <span>StudyFlow · あなたの学習記録 ·
+    <a href="#support-section" style="color:var(--primary2);text-decoration:none;">このアプリを応援する ☕</a>
+  </span>
 </footer>
 
 <script src="/static/app.js"></script>

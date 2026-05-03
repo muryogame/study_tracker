@@ -209,6 +209,18 @@ def delete_session(session_id: int):
     return {"ok": True}
 
 
+@app.get("/api/site-config")
+def site_config():
+    """フロントエンドが使う公開設定（シークレットは含まない）"""
+    return {
+        "bmc_username":  os.environ.get("BMC_USERNAME",  ""),
+        "kofi_username": os.environ.get("KOFI_USERNAME", ""),
+        "adsense_id":    os.environ.get("ADSENSE_ID",    ""),
+        "amazon_tag":    os.environ.get("AMAZON_TAG",    ""),
+        "stripe_link":   os.environ.get("STRIPE_LINK",   ""),
+    }
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")

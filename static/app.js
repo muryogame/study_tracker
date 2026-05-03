@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateHeaderDate();
   setInterval(updateHeaderDate, 60_000);
   loadAll();
+  loadMonetization();
 });
 
 function updateHeaderDate() {
@@ -330,4 +331,116 @@ async function deleteSession(id, btn) {
     document.getElementById('history-count').textContent = `全 ${historyTotal} 件`;
     loadStats(); loadCalendar(); calDayCache = {};
   }
+}
+
+/* ══════════════════════════════════════════════════════════
+   MONETIZATION
+══════════════════════════════════════════════════════════ */
+const AFFILIATE_ITEMS = [
+  { emoji: '⏱️', title: '勉強タイマー',      desc: 'ポモドーロ・カウントダウン対応。集中力UP！', q: '勉強+タイマー' },
+  { emoji: '📓', title: '学習ノート・手帳',   desc: '計画を可視化して継続率アップ。',              q: '学習+手帳+スケジュール' },
+  { emoji: '🎧', title: 'ノイズキャンセリング', desc: 'カフェや自習室でも集中できる環境を。',       q: 'ノイズキャンセリング+勉強' },
+  { emoji: '💡', title: '学習用デスクライト',  desc: '目に優しい光で長時間学習をサポート。',       q: 'デスクライト+勉強' },
+  { emoji: '📚', title: '人気参考書・問題集',  desc: '最新の人気学習本をチェック。',               q: '参考書+問題集+資格' },
+  { emoji: '🪑', title: '姿勢サポートグッズ', desc: '腰痛対策で長時間学習を快適に。',              q: '腰痛+クッション+椅子' },
+];
+
+async function loadMonetization() {
+  let cfg = {};
+  try { cfg = await fetch('/api/site-config').then(r => r.json()); } catch {}
+
+  renderAffiliateSection(cfg.amazon_tag || '');
+  renderSupportButtons(cfg);
+  injectAdSense(cfg.adsense_id || '');
+  injectBMCWidget(cfg.bmc_username || '');
+}
+
+/* ── アフィリエイト ───────────────────────────────────────── */
+function renderAffiliateSection(tag) {
+  const grid = document.getElementById('affiliate-grid');
+  if (!grid) return;
+  grid.innerHTML = AFFILIATE_ITEMS.map(item => {
+    const tagParam = tag ? `&tag=${tag}` : '';
+    const url = `https://www.amazon.co.jp/s?k=${encodeURIComponent(item.q)}${tagParam}`;
+    return `
+      <a href="${url}" target="_blank" rel="noopener" class="affiliate-card">
+        <div class="affiliate-card-emoji">${item.emoji}</div>
+        <div class="affiliate-card-title">${item.title}</div>
+        <div class="affiliate-card-desc">${item.desc}</div>
+        <div class="affiliate-card-link">Amazonで見る →</div>
+      </a>`;
+  }).join('');
+}
+
+/* ── サポートボタン ──────────────────────────────────────── */
+function renderSupportButtons(cfg) {
+  const wrap = document.getElementById('support-buttons');
+  if (!wrap) return;
+  const btns = [];
+
+  if (cfg.bmc_username) {
+    btns.push(`<a href="https://www.buymeacoffee.com/${cfg.bmc_username}" target="_blank" rel="noopener" class="support-btn btn-bmc">
+      ☕ Buy Me a Coffee
+    </a>`);
+  }
+  if (cfg.kofi_username) {
+    btns.push(`<a href="https://ko-fi.com/${cfg.kofi_username}" target="_blank" rel="noopener" class="support-btn btn-kofi">
+      ❤️ Ko-fi でサポート
+    </a>`);
+  }
+  if (cfg.stripe_link) {
+    btns.push(`<a href="${cfg.stripe_link}" target="_blank" rel="noopener" class="support-btn btn-stripe">
+      💳 カードで寄付する
+    </a>`);
+  }
+
+  if (btns.length === 0) {
+    // 何も設定されていなければ設定誘導メッセージを非表示に
+    wrap.innerHTML = `<p style="color:var(--text3);font-size:13px;">近日公開予定</p>`;
+  } else {
+    wrap.innerHTML = btns.join('');
+  }
+}
+
+/* ── Google AdSense ──────────────────────────────────────── */
+function injectAdSense(publisherId) {
+  if (!publisherId) return;
+
+  // Auto ads スクリプトを head に追加
+  const s = document.createElement('script');
+  s.async = true;
+  s.src   = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}`;
+  s.setAttribute('crossorigin', 'anonymous');
+  document.head.appendChild(s);
+
+  // 各スロットにレスポンシブ広告ユニットを挿入
+  ['ad-slot-1', 'ad-slot-2'].forEach(slotId => {
+    const el = document.getElementById(slotId);
+    if (!el) return;
+    el.innerHTML = `
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="${publisherId}"
+           data-ad-slot="auto"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>`;
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch {}
+  });
+}
+
+/* ── Buy Me a Coffee フローティングウィジェット ─────────── */
+function injectBMCWidget(username) {
+  if (!username) return;
+  const s = document.createElement('script');
+  s.setAttribute('data-name',        'BMC-Widget');
+  s.setAttribute('data-cfasync',     'false');
+  s.setAttribute('data-id',          username);
+  s.setAttribute('data-description', 'StudyFlowを応援する');
+  s.setAttribute('data-message',     '学習の継続をサポートします！');
+  s.setAttribute('data-color',       '#6366F1');
+  s.setAttribute('data-position',    'Right');
+  s.setAttribute('data-x_margin',    '18');
+  s.setAttribute('data-y_margin',    '18');
+  s.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
+  document.body.appendChild(s);
 }
