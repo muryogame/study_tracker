@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   updateHeaderDate();
   setInterval(updateHeaderDate, 60_000);
   initAuth();
+  loadAll();
+  loadMonetization();
 });
 
 function updateHeaderDate() {
@@ -35,37 +37,28 @@ function updateHeaderDate() {
    AUTH
 ══════════════════════════════════════════════════════════ */
 async function initAuth() {
-  if (!token) { showAuthOverlay(); return; }
+  if (!token) return; // 未ログインでもアプリは動く
   try {
     const res = await fetch('/api/me', {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error();
     const data = await res.json();
-    showApp(data.email);
+    showLoggedIn(data.email);
   } catch {
     token = null;
     localStorage.removeItem('sf_token');
     localStorage.removeItem('sf_email');
-    showAuthOverlay();
   }
 }
 
-function showAuthOverlay() {
-  document.getElementById('auth-overlay').classList.remove('hidden');
-  document.getElementById('auth-email').focus();
-}
-
-function showApp(email) {
-  document.getElementById('auth-overlay').classList.add('hidden');
+function showLoggedIn(email) {
   currentEmail = email;
   localStorage.setItem('sf_email', email);
-  const emailEl = document.getElementById('header-email');
-  emailEl.textContent = email;
-  emailEl.classList.remove('hidden');
-  document.getElementById('logout-btn').classList.remove('hidden');
-  loadAll();
-  loadMonetization();
+  document.getElementById('auth-form-section').classList.add('hidden');
+  document.getElementById('auth-user-section').classList.remove('hidden');
+  document.getElementById('auth-user-email').textContent = email;
+  loadAll(); // ログイン後に自分のデータで再読み込み
 }
 
 function switchTab(mode) {
@@ -75,13 +68,11 @@ function switchTab(mode) {
   document.getElementById('tab-register').classList.toggle('active', !isLogin);
   document.getElementById('auth-submit-btn').textContent = isLogin ? 'ログイン' : '登録する';
   document.getElementById('auth-error').classList.add('hidden');
-  document.getElementById('auth-password').placeholder = isLogin ? '8文字以上' : '8文字以上で設定';
 }
 
 async function submitAuth() {
   const email    = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
-  const errEl    = document.getElementById('auth-error');
   const btn      = document.getElementById('auth-submit-btn');
 
   if (!email || !password) {
@@ -110,7 +101,7 @@ async function submitAuth() {
     }
     token = data.token;
     localStorage.setItem('sf_token', token);
-    showApp(data.email);
+    showLoggedIn(data.email);
   } catch {
     showAuthError('通信エラーが発生しました');
   } finally {
@@ -132,21 +123,22 @@ function logout() {
   localStorage.removeItem('sf_email');
   activeSession = null;
   stopTimer();
-  document.getElementById('header-email').classList.add('hidden');
-  document.getElementById('logout-btn').classList.add('hidden');
   document.getElementById('header-session-badge').classList.add('hidden');
+  document.getElementById('auth-user-section').classList.add('hidden');
+  document.getElementById('auth-form-section').classList.remove('hidden');
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-password').value = '';
+  document.getElementById('auth-error').classList.add('hidden');
   switchTab('login');
-  showAuthOverlay();
+  loadAll(); // 匿名データで再読み込み
 }
 
-/* ── Authenticated fetch ──────────────────────────────────── */
+/* ── Fetch（トークンがあれば付与、なければ匿名） ─────────── */
 async function authFetch(url, opts = {}) {
-  opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
-  const res = await fetch(url, opts);
-  if (res.status === 401) { logout(); throw new Error('unauthorized'); }
-  return res;
+  if (token) {
+    opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
+  }
+  return fetch(url, opts);
 }
 
 /* ══════════════════════════════════════════════════════════

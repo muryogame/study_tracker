@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 from passlib.context import CryptContext
 from jose import jwt, JWTError
+from typing import Optional
 import os
 
 app = FastAPI(title="StudyFlow")
@@ -130,14 +131,19 @@ def _make_token(user_id: int) -> str:
     return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def get_current_user_id(
-    creds: HTTPAuthorizationCredentials = Depends(security),
+_optional_bearer = HTTPBearer(auto_error=False)
+
+def get_optional_user_id(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_optional_bearer),
 ) -> int:
+    """ログイン済み → ユーザーID、未ログイン → 0（匿名）"""
+    if not creds:
+        return 0
     try:
         payload = jwt.decode(creds.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         return int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
-        raise HTTPException(401, "認証が必要です")
+    except Exception:
+        return 0
 
 
 @app.post("/api/register")
@@ -176,7 +182,7 @@ def login(body: AuthBody):
 
 
 @app.get("/api/me")
-def me(uid: int = Depends(get_current_user_id)):
+def me(uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         row = conn.execute(
             text("SELECT email FROM users WHERE id=:id"), {"id": uid}
@@ -188,7 +194,7 @@ def me(uid: int = Depends(get_current_user_id)):
 
 # ── API ───────────────────────────────────────────────────────
 @app.get("/api/active")
-def get_active(uid: int = Depends(get_current_user_id)):
+def get_active(uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         row = conn.execute(text(
             "SELECT * FROM sessions WHERE end_time IS NULL AND user_id=:u ORDER BY start_time DESC LIMIT 1"
@@ -197,7 +203,7 @@ def get_active(uid: int = Depends(get_current_user_id)):
 
 
 @app.post("/api/start")
-def start_session(uid: int = Depends(get_current_user_id)):
+def start_session(uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         if conn.execute(text(
             "SELECT id FROM sessions WHERE end_time IS NULL AND user_id=:u"
@@ -220,7 +226,7 @@ def start_session(uid: int = Depends(get_current_user_id)):
 
 
 @app.post("/api/stop")
-def stop_session(uid: int = Depends(get_current_user_id)):
+def stop_session(uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         active = conn.execute(text(
             "SELECT * FROM sessions WHERE end_time IS NULL AND user_id=:u ORDER BY start_time DESC LIMIT 1"
@@ -236,7 +242,7 @@ def stop_session(uid: int = Depends(get_current_user_id)):
 
 
 @app.get("/api/calendar/{year}/{month}")
-def get_calendar(year: int, month: int, uid: int = Depends(get_current_user_id)):
+def get_calendar(year: int, month: int, uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(f"""
             SELECT {_date('start_time')} AS day,
@@ -253,7 +259,7 @@ def get_calendar(year: int, month: int, uid: int = Depends(get_current_user_id))
 
 
 @app.get("/api/stats")
-def get_stats(uid: int = Depends(get_current_user_id)):
+def get_stats(uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         monthly = conn.execute(text(f"""
             SELECT COALESCE(SUM(duration_minutes), 0) AS t FROM sessions
@@ -295,7 +301,7 @@ def get_stats(uid: int = Depends(get_current_user_id)):
 
 
 @app.get("/api/history")
-def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_current_user_id)):
+def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(
             "SELECT id, start_time, end_time, duration_minutes FROM sessions "
@@ -308,7 +314,7 @@ def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_current
 
 
 @app.delete("/api/sessions/{session_id}")
-def delete_session(session_id: int, uid: int = Depends(get_current_user_id)):
+def delete_session(session_id: int, uid: int = Depends(get_optional_user_id)):
     with get_db() as conn:
         conn.execute(text(
             "DELETE FROM sessions WHERE id=:id AND user_id=:u"

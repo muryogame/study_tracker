@@ -13,9 +13,10 @@
 </head>
 <body>
 
-<!-- ── Auth Overlay ───────────────────────────────────── -->
-<div id="auth-overlay" class="auth-overlay">
-  <div class="auth-card">
+<!-- ── Auth Widget（右上固定） ─────────────────────────── -->
+<div id="auth-widget" class="auth-widget">
+  <!-- 未ログイン時 -->
+  <div id="auth-form-section">
     <div class="auth-tabs">
       <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">ログイン</button>
       <button class="auth-tab" id="tab-register" onclick="switchTab('register')">新規登録</button>
@@ -27,6 +28,11 @@
              onkeydown="if(event.key==='Enter')submitAuth()" />
       <button id="auth-submit-btn" class="auth-submit" onclick="submitAuth()">ログイン</button>
     </div>
+  </div>
+  <!-- ログイン済み時 -->
+  <div id="auth-user-section" class="hidden">
+    <div class="auth-user-email" id="auth-user-email"></div>
+    <button class="auth-logout-btn" onclick="logout()">ログアウト</button>
   </div>
 </div>
 
@@ -43,12 +49,10 @@
     </div>
     <div class="header-right">
       <span id="header-date" class="header-date"></span>
-      <span id="header-email" class="header-email hidden"></span>
       <div id="header-session-badge" class="session-badge hidden">
         <span class="pulse-dot"></span>
         <span id="header-timer">00:00:00</span>
       </div>
-      <button id="logout-btn" class="logout-btn hidden" onclick="logout()">ログアウト</button>
     </div>
   </div>
 </header>

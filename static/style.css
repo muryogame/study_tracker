@@ -2,30 +2,24 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ══════════════════════════════════════════════════════════
-   AUTH OVERLAY
+   AUTH WIDGET（右上固定）
 ══════════════════════════════════════════════════════════ */
-.auth-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(8,13,26,.7);
-  backdrop-filter: blur(6px);
-  display: flex; align-items: flex-start; justify-content: flex-end;
-  padding: 76px 24px 0;
-}
-.auth-overlay.hidden { display: none !important; }
-
-.auth-card {
-  width: 280px;
+.auth-widget {
+  position: fixed;
+  top: 70px; right: 24px;
+  z-index: 500;
+  width: 260px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 8px 40px rgba(0,0,0,.6);
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
 }
 
 .auth-tabs {
   display: flex; gap: 3px;
   background: var(--surface2); border-radius: 9px; padding: 3px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .auth-tab {
   flex: 1; padding: 7px; border-radius: 7px;
@@ -63,18 +57,20 @@
 .auth-submit:hover { opacity: .88; }
 .auth-submit:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ── Header auth elements ────────────────────────────────── */
-.header-email {
-  color: var(--text2); font-size: 12px;
-  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* ── ログイン済み表示 ─────────────────────────────────────── */
+.auth-user-email {
+  font-size: 12px; color: var(--text2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-bottom: 10px;
 }
-.logout-btn {
-  padding: 5px 12px; border-radius: 8px;
-  border: 1px solid var(--border); background: transparent;
-  color: var(--text2); font-size: 12px; cursor: pointer;
+.auth-logout-btn {
+  width: 100%; padding: 8px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: transparent; color: var(--text2);
+  font-size: 13px; cursor: pointer;
   transition: background .15s, color .15s;
 }
-.logout-btn:hover { background: var(--surface2); color: var(--text); }
+.auth-logout-btn:hover { background: var(--surface2); color: var(--text); }
 
 :root {
   --bg:        #080D1A;
