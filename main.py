@@ -1,23 +1,30 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
+from pydantic import BaseModel
+from passlib.context import CryptContext
+from jose import jwt, JWTError
 import os
 
 app = FastAPI(title="StudyFlow")
-
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
+SECRET_KEY = os.environ.get("SECRET_KEY", "studyflow-dev-secret-change-in-prod")
+ALGORITHM  = "HS256"
+TOKEN_DAYS = 30
+
+pwd_ctx  = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
 # ── Database ──────────────────────────────────────────────────
-# 本番: DATABASE_URL 環境変数 (PostgreSQL)
-# ローカル: SQLite
 _db_url = os.environ.get("DATABASE_URL", "")
 if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-# sslmode が URL に含まれていなければ付加
 if _db_url and "sslmode" not in _db_url:
     sep = "&" if "?" in _db_url else "?"
     _db_url = f"{_db_url}{sep}sslmode=require"
@@ -50,22 +57,22 @@ def get_db():
 
 # ── SQL 方言ヘルパー ──────────────────────────────────────────
 if IS_PG:
-    def _ym(col):      return f"to_char({col}::timestamp, 'YYYY-MM')"
-    def _date(col):    return f"({col}::timestamp AT TIME ZONE 'Asia/Tokyo')::date"
-    def _dow(col):     return f"EXTRACT(DOW FROM {col}::timestamp)::integer"
-    def _yr(col):      return f"to_char({col}::timestamp, 'YYYY')"
-    def _mo(col):      return f"to_char({col}::timestamp, 'MM')"
+    def _ym(col):   return f"to_char({col}::timestamp, 'YYYY-MM')"
+    def _date(col): return f"({col}::timestamp AT TIME ZONE 'Asia/Tokyo')::date"
+    def _dow(col):  return f"EXTRACT(DOW FROM {col}::timestamp)::integer"
+    def _yr(col):   return f"to_char({col}::timestamp, 'YYYY')"
+    def _mo(col):   return f"to_char({col}::timestamp, 'MM')"
     NOW_YM   = "to_char(NOW() AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM')"
     TODAY    = "(NOW() AT TIME ZONE 'Asia/Tokyo')::date"
     WEEK_AGO = "(NOW() AT TIME ZONE 'Asia/Tokyo')::date - INTERVAL '7 days'"
     D30_AGO  = "(NOW() AT TIME ZONE 'Asia/Tokyo')::date - INTERVAL '30 days'"
     SERIAL   = "SERIAL PRIMARY KEY"
 else:
-    def _ym(col):      return f"strftime('%Y-%m', {col})"
-    def _date(col):    return f"date({col}, 'localtime')"
-    def _dow(col):     return f"CAST(strftime('%w', {col}) AS INTEGER)"
-    def _yr(col):      return f"strftime('%Y', {col})"
-    def _mo(col):      return f"strftime('%m', {col})"
+    def _ym(col):   return f"strftime('%Y-%m', {col})"
+    def _date(col): return f"date({col}, 'localtime')"
+    def _dow(col):  return f"CAST(strftime('%w', {col}) AS INTEGER)"
+    def _yr(col):   return f"strftime('%Y', {col})"
+    def _mo(col):   return f"strftime('%m', {col})"
     NOW_YM   = "strftime('%Y-%m', 'now', 'localtime')"
     TODAY    = "date('now', 'localtime')"
     WEEK_AGO = "date('now', 'localtime', '-7 days')"
@@ -76,63 +83,160 @@ else:
 def init_db():
     with get_db() as conn:
         conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS users (
+                id            {SERIAL},
+                email         TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at    TEXT NOT NULL
+            )
+        """))
+        conn.execute(text(f"""
             CREATE TABLE IF NOT EXISTS sessions (
                 id               {SERIAL},
+                user_id          INTEGER,
                 start_time       TEXT NOT NULL,
                 end_time         TEXT,
                 duration_minutes REAL
             )
         """))
+        # 既存テーブルに user_id カラムを追加（マイグレーション）
+        try:
+            if IS_PG:
+                conn.execute(text(
+                    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id INTEGER"
+                ))
+            else:
+                cols = [r[1] for r in conn.execute(
+                    text("PRAGMA table_info(sessions)")
+                ).fetchall()]
+                if "user_id" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE sessions ADD COLUMN user_id INTEGER"
+                    ))
+        except Exception:
+            pass
 
 init_db()
 
 
+# ── Auth ──────────────────────────────────────────────────────
+class AuthBody(BaseModel):
+    email: str
+    password: str
+
+
+def _make_token(user_id: int) -> str:
+    expire = datetime.now() + timedelta(days=TOKEN_DAYS)
+    return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_current_user_id(
+    creds: HTTPAuthorizationCredentials = Depends(security),
+) -> int:
+    try:
+        payload = jwt.decode(creds.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        return int(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(401, "認証が必要です")
+
+
+@app.post("/api/register")
+def register(body: AuthBody):
+    with get_db() as conn:
+        if conn.execute(
+            text("SELECT id FROM users WHERE email=:e"), {"e": body.email}
+        ).fetchone():
+            raise HTTPException(400, "このメールアドレスは既に登録されています")
+        now = datetime.now().isoformat()
+        h   = pwd_ctx.hash(body.password)
+        if IS_PG:
+            row = conn.execute(
+                text("INSERT INTO users (email, password_hash, created_at) VALUES (:e,:h,:t) RETURNING id"),
+                {"e": body.email, "h": h, "t": now},
+            ).fetchone()
+            uid = row[0]
+        else:
+            result = conn.execute(
+                text("INSERT INTO users (email, password_hash, created_at) VALUES (:e,:h,:t)"),
+                {"e": body.email, "h": h, "t": now},
+            )
+            uid = result.lastrowid
+    return {"token": _make_token(uid), "email": body.email}
+
+
+@app.post("/api/login")
+def login(body: AuthBody):
+    with get_db() as conn:
+        row = conn.execute(
+            text("SELECT id, password_hash FROM users WHERE email=:e"), {"e": body.email}
+        ).mappings().fetchone()
+    if not row or not pwd_ctx.verify(body.password, row["password_hash"]):
+        raise HTTPException(401, "メールアドレスまたはパスワードが違います")
+    return {"token": _make_token(row["id"]), "email": body.email}
+
+
+@app.get("/api/me")
+def me(uid: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        row = conn.execute(
+            text("SELECT email FROM users WHERE id=:id"), {"id": uid}
+        ).mappings().fetchone()
+    if not row:
+        raise HTTPException(404, "ユーザーが見つかりません")
+    return {"email": row["email"]}
+
+
 # ── API ───────────────────────────────────────────────────────
 @app.get("/api/active")
-def get_active():
+def get_active(uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
         row = conn.execute(text(
-            "SELECT * FROM sessions WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1"
-        )).mappings().fetchone()
+            "SELECT * FROM sessions WHERE end_time IS NULL AND user_id=:u ORDER BY start_time DESC LIMIT 1"
+        ), {"u": uid}).mappings().fetchone()
     return {"active": bool(row), "session": dict(row) if row else None}
 
 
 @app.post("/api/start")
-def start_session():
+def start_session(uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
-        if conn.execute(text("SELECT id FROM sessions WHERE end_time IS NULL")).fetchone():
+        if conn.execute(text(
+            "SELECT id FROM sessions WHERE end_time IS NULL AND user_id=:u"
+        ), {"u": uid}).fetchone():
             raise HTTPException(400, "既にセッションが進行中です")
         now = datetime.now().isoformat()
         if IS_PG:
             row = conn.execute(
-                text("INSERT INTO sessions (start_time) VALUES (:t) RETURNING id"),
-                {"t": now}
+                text("INSERT INTO sessions (user_id, start_time) VALUES (:u,:t) RETURNING id"),
+                {"u": uid, "t": now},
             ).fetchone()
             sid = row[0]
         else:
-            result = conn.execute(text("INSERT INTO sessions (start_time) VALUES (:t)"), {"t": now})
+            result = conn.execute(
+                text("INSERT INTO sessions (user_id, start_time) VALUES (:u,:t)"),
+                {"u": uid, "t": now},
+            )
             sid = result.lastrowid
     return {"session_id": sid, "start_time": now}
 
 
 @app.post("/api/stop")
-def stop_session():
+def stop_session(uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
         active = conn.execute(text(
-            "SELECT * FROM sessions WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1"
-        )).mappings().fetchone()
+            "SELECT * FROM sessions WHERE end_time IS NULL AND user_id=:u ORDER BY start_time DESC LIMIT 1"
+        ), {"u": uid}).mappings().fetchone()
         if not active:
             raise HTTPException(400, "進行中のセッションがありません")
         now      = datetime.now()
         duration = (now - datetime.fromisoformat(active["start_time"])).total_seconds() / 60
         conn.execute(text(
-            "UPDATE sessions SET end_time=:e, duration_minutes=:d WHERE id=:id"
-        ), {"e": now.isoformat(), "d": round(duration, 2), "id": active["id"]})
+            "UPDATE sessions SET end_time=:e, duration_minutes=:d WHERE id=:id AND user_id=:u"
+        ), {"e": now.isoformat(), "d": round(duration, 2), "id": active["id"], "u": uid})
     return {"session_id": active["id"], "end_time": now.isoformat(), "duration_minutes": round(duration, 2)}
 
 
 @app.get("/api/calendar/{year}/{month}")
-def get_calendar(year: int, month: int):
+def get_calendar(year: int, month: int, uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(f"""
             SELECT {_date('start_time')} AS day,
@@ -142,42 +246,43 @@ def get_calendar(year: int, month: int):
             WHERE {_yr('start_time')} = :y
               AND {_mo('start_time')} = :m
               AND end_time IS NOT NULL
+              AND user_id = :u
             GROUP BY {_date('start_time')}
-        """), {"y": str(year), "m": f"{month:02d}"}).mappings().fetchall()
+        """), {"y": str(year), "m": f"{month:02d}", "u": uid}).mappings().fetchall()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/stats")
-def get_stats():
+def get_stats(uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
         monthly = conn.execute(text(f"""
             SELECT COALESCE(SUM(duration_minutes), 0) AS t FROM sessions
-            WHERE {_ym('start_time')} = {NOW_YM} AND end_time IS NOT NULL
-        """)).fetchone()
+            WHERE {_ym('start_time')} = {NOW_YM} AND end_time IS NOT NULL AND user_id=:u
+        """), {"u": uid}).fetchone()
 
         weekly = conn.execute(text(f"""
             SELECT COALESCE(SUM(duration_minutes), 0) AS t FROM sessions
-            WHERE {_date('start_time')} >= {WEEK_AGO} AND end_time IS NOT NULL
-        """)).fetchone()
+            WHERE {_date('start_time')} >= {WEEK_AGO} AND end_time IS NOT NULL AND user_id=:u
+        """), {"u": uid}).fetchone()
 
         today = conn.execute(text(f"""
             SELECT COALESCE(SUM(duration_minutes), 0) AS t, COUNT(*) AS c FROM sessions
-            WHERE {_date('start_time')} = {TODAY} AND end_time IS NOT NULL
-        """)).fetchone()
+            WHERE {_date('start_time')} = {TODAY} AND end_time IS NOT NULL AND user_id=:u
+        """), {"u": uid}).fetchone()
 
         by_dow = conn.execute(text(f"""
             SELECT {_dow('start_time')} AS dow,
                    COALESCE(SUM(duration_minutes), 0) AS total_minutes,
                    COUNT(DISTINCT {_date('start_time')}) AS days
-            FROM sessions WHERE end_time IS NOT NULL
+            FROM sessions WHERE end_time IS NOT NULL AND user_id=:u
             GROUP BY {_dow('start_time')}
             ORDER BY {_dow('start_time')}
-        """)).mappings().fetchall()
+        """), {"u": uid}).mappings().fetchall()
 
         streak = conn.execute(text(f"""
             SELECT COUNT(DISTINCT {_date('start_time')}) AS d FROM sessions
-            WHERE {_date('start_time')} >= {D30_AGO} AND end_time IS NOT NULL
-        """)).fetchone()
+            WHERE {_date('start_time')} >= {D30_AGO} AND end_time IS NOT NULL AND user_id=:u
+        """), {"u": uid}).fetchone()
 
     return {
         "monthly_minutes": round(monthly[0], 1),
@@ -190,28 +295,29 @@ def get_stats():
 
 
 @app.get("/api/history")
-def get_history(limit: int = 20, offset: int = 0):
+def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(
             "SELECT id, start_time, end_time, duration_minutes FROM sessions "
-            "WHERE end_time IS NOT NULL ORDER BY start_time DESC LIMIT :l OFFSET :o"
-        ), {"l": limit, "o": offset}).mappings().fetchall()
+            "WHERE end_time IS NOT NULL AND user_id=:u ORDER BY start_time DESC LIMIT :l OFFSET :o"
+        ), {"u": uid, "l": limit, "o": offset}).mappings().fetchall()
         total = conn.execute(text(
-            "SELECT COUNT(*) FROM sessions WHERE end_time IS NOT NULL"
-        )).fetchone()[0]
+            "SELECT COUNT(*) FROM sessions WHERE end_time IS NOT NULL AND user_id=:u"
+        ), {"u": uid}).fetchone()[0]
     return {"sessions": [dict(r) for r in rows], "total": total}
 
 
 @app.delete("/api/sessions/{session_id}")
-def delete_session(session_id: int):
+def delete_session(session_id: int, uid: int = Depends(get_current_user_id)):
     with get_db() as conn:
-        conn.execute(text("DELETE FROM sessions WHERE id=:id"), {"id": session_id})
+        conn.execute(text(
+            "DELETE FROM sessions WHERE id=:id AND user_id=:u"
+        ), {"id": session_id, "u": uid})
     return {"ok": True}
 
 
 @app.get("/api/site-config")
 def site_config():
-    """フロントエンドが使う公開設定（シークレットは含まない）"""
     return {
         "bmc_username":  os.environ.get("BMC_USERNAME",  ""),
         "kofi_username": os.environ.get("KOFI_USERNAME", ""),

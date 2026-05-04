@@ -1,14 +1,20 @@
 'use strict';
 
+// ── Auth state ────────────────────────────────────────────────
+let token        = localStorage.getItem('sf_token') || null;
+let currentEmail = localStorage.getItem('sf_email') || '';
+let authMode     = 'login'; // 'login' | 'register'
+
+// ── App state ─────────────────────────────────────────────────
 let activeSession = null;
 let timerInterval = null;
 let calYear, calMonth;
-let calData       = {};
-let calDayCache   = {};
+let calData    = {};
+let calDayCache = {};
 let historyOffset = 0;
 let historyTotal  = 0;
-let dowChart      = null;
-let dailyChart    = null;
+let dowChart   = null;
+let dailyChart = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   const now = new Date();
@@ -16,8 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   calMonth  = now.getMonth() + 1;
   updateHeaderDate();
   setInterval(updateHeaderDate, 60_000);
-  loadAll();
-  loadMonetization();
+  initAuth();
 });
 
 function updateHeaderDate() {
@@ -26,6 +31,127 @@ function updateHeaderDate() {
     new Date().toLocaleDateString('ja-JP', opts);
 }
 
+/* ══════════════════════════════════════════════════════════
+   AUTH
+══════════════════════════════════════════════════════════ */
+async function initAuth() {
+  if (!token) { showAuthOverlay(); return; }
+  try {
+    const res = await fetch('/api/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    showApp(data.email);
+  } catch {
+    token = null;
+    localStorage.removeItem('sf_token');
+    localStorage.removeItem('sf_email');
+    showAuthOverlay();
+  }
+}
+
+function showAuthOverlay() {
+  document.getElementById('auth-overlay').classList.remove('hidden');
+  document.getElementById('auth-email').focus();
+}
+
+function showApp(email) {
+  document.getElementById('auth-overlay').classList.add('hidden');
+  currentEmail = email;
+  localStorage.setItem('sf_email', email);
+  const emailEl = document.getElementById('header-email');
+  emailEl.textContent = email;
+  emailEl.classList.remove('hidden');
+  document.getElementById('logout-btn').classList.remove('hidden');
+  loadAll();
+  loadMonetization();
+}
+
+function switchTab(mode) {
+  authMode = mode;
+  const isLogin = mode === 'login';
+  document.getElementById('tab-login').classList.toggle('active', isLogin);
+  document.getElementById('tab-register').classList.toggle('active', !isLogin);
+  document.getElementById('auth-submit-btn').textContent = isLogin ? 'ログイン' : '登録する';
+  document.getElementById('auth-error').classList.add('hidden');
+  document.getElementById('auth-password').placeholder = isLogin ? '8文字以上' : '8文字以上で設定';
+}
+
+async function submitAuth() {
+  const email    = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl    = document.getElementById('auth-error');
+  const btn      = document.getElementById('auth-submit-btn');
+
+  if (!email || !password) {
+    showAuthError('メールアドレスとパスワードを入力してください');
+    return;
+  }
+  if (authMode === 'register' && password.length < 8) {
+    showAuthError('パスワードは8文字以上で設定してください');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '処理中...';
+
+  try {
+    const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+    const res = await fetch(endpoint, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAuthError(data.detail || 'エラーが発生しました');
+      return;
+    }
+    token = data.token;
+    localStorage.setItem('sf_token', token);
+    showApp(data.email);
+  } catch {
+    showAuthError('通信エラーが発生しました');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
+  }
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function logout() {
+  token = null;
+  currentEmail = '';
+  localStorage.removeItem('sf_token');
+  localStorage.removeItem('sf_email');
+  activeSession = null;
+  stopTimer();
+  document.getElementById('header-email').classList.add('hidden');
+  document.getElementById('logout-btn').classList.add('hidden');
+  document.getElementById('header-session-badge').classList.add('hidden');
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-password').value = '';
+  switchTab('login');
+  showAuthOverlay();
+}
+
+/* ── Authenticated fetch ──────────────────────────────────── */
+async function authFetch(url, opts = {}) {
+  opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
+  const res = await fetch(url, opts);
+  if (res.status === 401) { logout(); throw new Error('unauthorized'); }
+  return res;
+}
+
+/* ══════════════════════════════════════════════════════════
+   APP
+══════════════════════════════════════════════════════════ */
 function loadAll() {
   checkActive();
   loadStats();
@@ -36,7 +162,7 @@ function loadAll() {
 
 /* ── Session ─────────────────────────────────────────────── */
 async function checkActive() {
-  const res  = await fetch('/api/active');
+  const res  = await authFetch('/api/active');
   const data = await res.json();
   if (data.active) {
     activeSession = data.session;
@@ -54,7 +180,7 @@ async function toggleSession() {
 }
 
 async function startSession() {
-  const res = await fetch('/api/start', { method: 'POST' });
+  const res = await authFetch('/api/start', { method: 'POST' });
   if (!res.ok) return;
   const data = await res.json();
   activeSession = { id: data.session_id, start_time: data.start_time };
@@ -64,7 +190,7 @@ async function startSession() {
 }
 
 async function stopSession() {
-  const res = await fetch('/api/stop', { method: 'POST' });
+  const res = await authFetch('/api/stop', { method: 'POST' });
   if (!res.ok) return;
   activeSession = null;
   setActiveUI(false);
@@ -123,7 +249,7 @@ function pad(n) { return String(n).padStart(2, '0'); }
 
 /* ── Stats ───────────────────────────────────────────────── */
 async function loadStats() {
-  const data = await fetch('/api/stats').then(r => r.json());
+  const data = await authFetch('/api/stats').then(r => r.json());
   setMinDisplay('today-value',   data.today_minutes);
   setMinDisplay('weekly-value',  data.weekly_minutes);
   setMinDisplay('monthly-value', data.monthly_minutes);
@@ -140,7 +266,7 @@ function setMinDisplay(id, minutes) {
 
 /* ── Calendar ────────────────────────────────────────────── */
 async function loadCalendar() {
-  const rows = await fetch(`/api/calendar/${calYear}/${calMonth}`).then(r => r.json());
+  const rows = await authFetch(`/api/calendar/${calYear}/${calMonth}`).then(r => r.json());
   calData = {};
   for (const r of rows) calData[r.day] = r;
   renderCalendar();
@@ -197,7 +323,7 @@ function heatLevel(m) {
 
 async function showDayDetail(dateKey, dayNum) {
   if (!calDayCache[dateKey]) {
-    const data = await fetch('/api/history?limit=500').then(r => r.json());
+    const data = await authFetch('/api/history?limit=500').then(r => r.json());
     for (const s of data.sessions) {
       const k = s.start_time.slice(0, 10);
       if (!calDayCache[k]) calDayCache[k] = [];
@@ -250,7 +376,7 @@ async function loadDailyChart() {
     days.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
     labels.push(`${d.getMonth()+1}/${d.getDate()}`);
   }
-  const data = await fetch('/api/history?limit=500').then(r => r.json());
+  const data = await authFetch('/api/history?limit=500').then(r => r.json());
   const map  = {};
   for (const s of data.sessions) { const k = s.start_time.slice(0,10); map[k] = (map[k]||0) + s.duration_minutes; }
   const values = days.map(k => Math.round((map[k]||0)/60*10)/10);
@@ -280,7 +406,7 @@ function chartOpts() {
 /* ── History ─────────────────────────────────────────────── */
 async function loadHistory(reset = false) {
   if (reset) { historyOffset = 0; document.getElementById('history-list').innerHTML = ''; }
-  const data = await fetch(`/api/history?limit=20&offset=${historyOffset}`).then(r => r.json());
+  const data = await authFetch(`/api/history?limit=20&offset=${historyOffset}`).then(r => r.json());
   historyTotal   = data.total;
   historyOffset += data.sessions.length;
   renderHistoryItems(data.sessions);
@@ -324,7 +450,7 @@ function fmtDatetime(iso) {
 
 async function deleteSession(id, btn) {
   if (!confirm('このセッションを削除しますか？')) return;
-  const res = await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/api/sessions/${id}`, { method: 'DELETE' });
   if (res.ok) {
     btn.closest('.history-item').remove();
     historyTotal--;
@@ -395,7 +521,6 @@ function renderSupportButtons(cfg) {
   }
 
   if (btns.length === 0) {
-    // 何も設定されていなければ設定誘導メッセージを非表示に
     wrap.innerHTML = `<p style="color:var(--text3);font-size:13px;">近日公開予定</p>`;
   } else {
     wrap.innerHTML = btns.join('');
@@ -405,15 +530,11 @@ function renderSupportButtons(cfg) {
 /* ── Google AdSense ──────────────────────────────────────── */
 function injectAdSense(publisherId) {
   if (!publisherId) return;
-
-  // Auto ads スクリプトを head に追加
   const s = document.createElement('script');
   s.async = true;
   s.src   = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}`;
   s.setAttribute('crossorigin', 'anonymous');
   document.head.appendChild(s);
-
-  // 各スロットにレスポンシブ広告ユニットを挿入
   ['ad-slot-1', 'ad-slot-2'].forEach(slotId => {
     const el = document.getElementById(slotId);
     if (!el) return;
