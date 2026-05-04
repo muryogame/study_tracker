@@ -16,28 +16,14 @@
 <!-- ── Auth Overlay ───────────────────────────────────── -->
 <div id="auth-overlay" class="auth-overlay">
   <div class="auth-card">
-    <div class="auth-logo">
-      <svg width="36" height="36" viewBox="0 0 28 28" fill="none">
-        <circle cx="14" cy="14" r="13" stroke="url(#lg2)" stroke-width="2"/>
-        <path d="M14 7v7l4 4" stroke="url(#lg2)" stroke-width="2" stroke-linecap="round"/>
-        <defs><linearGradient id="lg2" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#6366F1"/><stop offset="1" stop-color="#8B5CF6"/></linearGradient></defs>
-      </svg>
-      <span class="auth-logo-text">StudyFlow</span>
-    </div>
-    <p class="auth-tagline">学習時間を記録・可視化するアプリ</p>
-
     <div class="auth-tabs">
       <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">ログイン</button>
       <button class="auth-tab" id="tab-register" onclick="switchTab('register')">新規登録</button>
     </div>
-
     <div id="auth-error" class="auth-error hidden"></div>
-
     <div class="auth-form">
-      <label class="auth-label">メールアドレス</label>
-      <input id="auth-email" class="auth-input" type="email" placeholder="example@email.com" autocomplete="email" />
-      <label class="auth-label">パスワード</label>
-      <input id="auth-password" class="auth-input" type="password" placeholder="8文字以上" autocomplete="current-password"
+      <input id="auth-email" class="auth-input" type="email" placeholder="メールアドレス" autocomplete="email" />
+      <input id="auth-password" class="auth-input" type="password" placeholder="パスワード" autocomplete="current-password"
              onkeydown="if(event.key==='Enter')submitAuth()" />
       <button id="auth-submit-btn" class="auth-submit" onclick="submitAuth()">ログイン</button>
     </div>
