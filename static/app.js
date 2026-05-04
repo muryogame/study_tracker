@@ -97,19 +97,34 @@ async function submitAuth() {
   const btn      = document.getElementById('auth-submit-btn');
   if (!email || !password) { showAuthError('メールアドレスとパスワードを入力してください'); return; }
   if (authMode === 'register' && password.length < 8) { showAuthError('パスワードは8文字以上で設定してください'); return; }
-  btn.disabled = true; btn.textContent = '処理中...';
+  btn.disabled = true; btn.textContent = '接続中...';
   try {
-    const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
+    const controller = new AbortController();
+    const timeout    = setTimeout(() => controller.abort(), 30000);
+    let res;
+    try {
+      res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      const msg = e.name === 'AbortError'
+        ? 'サーバーの応答がタイムアウトしました。'
+        : 'サーバーに接続できません。';
+      showAuthError(msg + 'しばらく待ってから再度お試しください。');
+      return;
+    } finally { clearTimeout(timeout); }
+
+    let data;
+    try { data = await res.json(); }
+    catch { showAuthError('サーバーが起動中です（最大50秒）。しばらく待ってから再度お試しください。'); return; }
+
     if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); return; }
     token = data.token;
     localStorage.setItem('sf_token', token);
     showLoggedIn(data.email);
-  } catch { showAuthError('通信エラーが発生しました'); }
-  finally {
+  } finally {
     btn.disabled = false;
     btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
   }
