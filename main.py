@@ -11,8 +11,35 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 from typing import Optional
 import os
+import threading
+import time
+import urllib.request
 
 app = FastAPI(title="StudyFlow")
+
+
+# ── Keep-alive（Renderのスリープ防止） ────────────────────────
+def _keepalive_worker():
+    """Renderの無料プランスリープを防ぐため、10分ごとに自身をping"""
+    base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not base_url:
+        return  # ローカル環境では動かさない
+    ping_url = f"{base_url}/api/ping"
+    time.sleep(120)  # 起動完了を待つ
+    while True:
+        try:
+            urllib.request.urlopen(ping_url, timeout=15)
+        except Exception:
+            pass
+        time.sleep(600)  # 10分ごと
+
+@app.on_event("startup")
+async def start_keepalive():
+    threading.Thread(target=_keepalive_worker, daemon=True).start()
+
+@app.get("/api/ping")
+def ping():
+    return {"ok": True}
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "studyflow-dev-secret-change-in-prod")
