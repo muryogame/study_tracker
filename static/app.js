@@ -3,18 +3,20 @@
 // ── Auth state ────────────────────────────────────────────────
 let token        = localStorage.getItem('sf_token') || null;
 let currentEmail = localStorage.getItem('sf_email') || '';
-let authMode     = 'login'; // 'login' | 'register'
+let authMode     = 'login';
 
 // ── App state ─────────────────────────────────────────────────
-let activeSession = null;
-let timerInterval = null;
+let activeSession  = null;
+let timerInterval  = null;
 let calYear, calMonth;
-let calData    = {};
-let calDayCache = {};
-let historyOffset = 0;
-let historyTotal  = 0;
-let dowChart   = null;
-let dailyChart = null;
+let calData        = {};
+let calDayCache    = {};
+let historyOffset  = 0;
+let historyTotal   = 0;
+let dowChart       = null;
+let dailyChart     = null;
+let currentPage    = 'home';
+let chartsRendered = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   const now = new Date();
@@ -34,14 +36,33 @@ function updateHeaderDate() {
 }
 
 /* ══════════════════════════════════════════════════════════
+   NAVIGATION
+══════════════════════════════════════════════════════════ */
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.remove('hidden');
+  document.querySelector(`.nav-btn[data-page="${name}"]`).classList.add('active');
+  currentPage = name;
+
+  if (name === 'analysis' && !chartsRendered) {
+    loadStats();
+    loadHistory(true);
+    loadDailyChart();
+    chartsRendered = true;
+  }
+  if (name === 'calendar') loadCalendar();
+  if (name === 'todo')     loadTodos();
+  if (name === 'rewards')  loadRewards();
+}
+
+/* ══════════════════════════════════════════════════════════
    AUTH
 ══════════════════════════════════════════════════════════ */
 async function initAuth() {
-  if (!token) return; // 未ログインでもアプリは動く
+  if (!token) return;
   try {
-    const res = await fetch('/api/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) throw new Error();
     const data = await res.json();
     showLoggedIn(data.email);
@@ -58,7 +79,7 @@ function showLoggedIn(email) {
   document.getElementById('auth-form-section').classList.add('hidden');
   document.getElementById('auth-user-section').classList.remove('hidden');
   document.getElementById('auth-user-email').textContent = email;
-  loadAll(); // ログイン後に自分のデータで再読み込み
+  loadAll();
 }
 
 function switchTab(mode) {
@@ -74,37 +95,21 @@ async function submitAuth() {
   const email    = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
   const btn      = document.getElementById('auth-submit-btn');
-
-  if (!email || !password) {
-    showAuthError('メールアドレスとパスワードを入力してください');
-    return;
-  }
-  if (authMode === 'register' && password.length < 8) {
-    showAuthError('パスワードは8文字以上で設定してください');
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = '処理中...';
-
+  if (!email || !password) { showAuthError('メールアドレスとパスワードを入力してください'); return; }
+  if (authMode === 'register' && password.length < 8) { showAuthError('パスワードは8文字以上で設定してください'); return; }
+  btn.disabled = true; btn.textContent = '処理中...';
   try {
-    const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
-    const res = await fetch(endpoint, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ email, password }),
+    const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
     });
     const data = await res.json();
-    if (!res.ok) {
-      showAuthError(data.detail || 'エラーが発生しました');
-      return;
-    }
+    if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); return; }
     token = data.token;
     localStorage.setItem('sf_token', token);
     showLoggedIn(data.email);
-  } catch {
-    showAuthError('通信エラーが発生しました');
-  } finally {
+  } catch { showAuthError('通信エラーが発生しました'); }
+  finally {
     btn.disabled = false;
     btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
   }
@@ -112,17 +117,13 @@ async function submitAuth() {
 
 function showAuthError(msg) {
   const el = document.getElementById('auth-error');
-  el.textContent = msg;
-  el.classList.remove('hidden');
+  el.textContent = msg; el.classList.remove('hidden');
 }
 
 function logout() {
-  token = null;
-  currentEmail = '';
-  localStorage.removeItem('sf_token');
-  localStorage.removeItem('sf_email');
-  activeSession = null;
-  stopTimer();
+  token = null; currentEmail = '';
+  localStorage.removeItem('sf_token'); localStorage.removeItem('sf_email');
+  activeSession = null; stopTimer();
   document.getElementById('header-session-badge').classList.add('hidden');
   document.getElementById('auth-user-section').classList.add('hidden');
   document.getElementById('auth-form-section').classList.remove('hidden');
@@ -130,45 +131,36 @@ function logout() {
   document.getElementById('auth-password').value = '';
   document.getElementById('auth-error').classList.add('hidden');
   switchTab('login');
-  loadAll(); // 匿名データで再読み込み
+  loadAll();
 }
 
-/* ── Fetch（トークンがあれば付与、なければ匿名） ─────────── */
+/* ── Fetch helper ─────────────────────────────────────────── */
 async function authFetch(url, opts = {}) {
-  if (token) {
-    opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
-  }
+  if (token) opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
   return fetch(url, opts);
 }
 
 /* ══════════════════════════════════════════════════════════
-   APP
+   APP LOAD
 ══════════════════════════════════════════════════════════ */
 function loadAll() {
   checkActive();
   loadStats();
-  loadCalendar();
-  loadHistory(true);
-  loadDailyChart();
+  loadHomeTodos();
+  chartsRendered = false; // ページ切替でリセット
 }
 
 /* ── Session ─────────────────────────────────────────────── */
 async function checkActive() {
   const res  = await authFetch('/api/active');
   const data = await res.json();
-  if (data.active) {
-    activeSession = data.session;
-    setActiveUI(true);
-    startTimer();
-  } else {
-    activeSession = null;
-    setActiveUI(false);
-  }
+  if (data.active) { activeSession = data.session; setActiveUI(true); startTimer(); }
+  else             { activeSession = null; setActiveUI(false); }
 }
 
 async function toggleSession() {
-  if (activeSession) { await stopSession(); }
-  else               { await startSession(); }
+  if (activeSession) await stopSession();
+  else               await startSession();
 }
 
 async function startSession() {
@@ -176,18 +168,13 @@ async function startSession() {
   if (!res.ok) return;
   const data = await res.json();
   activeSession = { id: data.session_id, start_time: data.start_time };
-  setActiveUI(true);
-  startTimer();
-  loadStats();
+  setActiveUI(true); startTimer(); loadStats();
 }
 
 async function stopSession() {
   const res = await authFetch('/api/stop', { method: 'POST' });
   if (!res.ok) return;
-  activeSession = null;
-  setActiveUI(false);
-  stopTimer();
-  loadAll();
+  activeSession = null; setActiveUI(false); stopTimer(); loadAll();
 }
 
 function setActiveUI(active) {
@@ -198,21 +185,16 @@ function setActiveUI(active) {
   const badge  = document.getElementById('header-session-badge');
   const wrap   = document.querySelector('.touch-wrap');
   const icon   = document.getElementById('touch-icon-svg');
-
   if (active) {
     btn.className = 'touch-btn active';
-    label.textContent  = 'STOP';
-    sub.textContent    = 'タッチして終了';
-    status.textContent = '学習中…';
-    badge.classList.remove('hidden');
+    label.textContent = 'STOP'; sub.textContent = 'タッチして終了';
+    status.textContent = '学習中…'; badge.classList.remove('hidden');
     wrap.classList.add('active');
     icon.innerHTML = `<rect x="10" y="10" width="16" height="16" rx="3" fill="currentColor"/>`;
   } else {
     btn.className = 'touch-btn idle';
-    label.textContent  = 'START';
-    sub.textContent    = 'タッチして開始';
-    status.textContent = '学習を始めましょう';
-    badge.classList.add('hidden');
+    label.textContent = 'START'; sub.textContent = 'タッチして開始';
+    status.textContent = '学習を始めましょう'; badge.classList.add('hidden');
     document.getElementById('live-timer-value').textContent = '—';
     wrap.classList.remove('active');
     icon.innerHTML = `
@@ -222,14 +204,8 @@ function setActiveUI(active) {
 }
 
 /* ── Timer ───────────────────────────────────────────────── */
-function startTimer() {
-  stopTimer();
-  timerInterval = setInterval(tickTimer, 1000);
-  tickTimer();
-}
-function stopTimer() {
-  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-}
+function startTimer() { stopTimer(); timerInterval = setInterval(tickTimer, 1000); tickTimer(); }
+function stopTimer()  { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 function tickTimer() {
   if (!activeSession) return;
   const elapsed = Math.floor((Date.now() - new Date(activeSession.start_time).getTime()) / 1000);
@@ -247,7 +223,7 @@ async function loadStats() {
   setMinDisplay('monthly-value', data.monthly_minutes);
   document.getElementById('streak-value').innerHTML =
     `${data.active_days_30}<span class="stat-unit">日</span>`;
-  renderDowChart(data.by_day_of_week);
+  if (currentPage === 'analysis') renderDowChart(data.by_day_of_week);
 }
 
 function setMinDisplay(id, minutes) {
@@ -268,9 +244,7 @@ function changeMonth(delta) {
   calMonth += delta;
   if (calMonth > 12) { calMonth = 1; calYear++; }
   if (calMonth < 1)  { calMonth = 12; calYear--; }
-  calDayCache = {};
-  loadCalendar();
-  closeDayDetail();
+  calDayCache = {}; loadCalendar(); closeDayDetail();
 }
 
 function renderCalendar() {
@@ -280,7 +254,6 @@ function renderCalendar() {
   const firstDay    = new Date(calYear, calMonth - 1, 1).getDay();
   const daysInMonth = new Date(calYear, calMonth, 0).getDate();
   const today       = new Date();
-
   for (let i = 0; i < firstDay; i++) {
     const e = document.createElement('div'); e.className = 'cal-cell empty'; grid.appendChild(e);
   }
@@ -289,29 +262,17 @@ function renderCalendar() {
     const mins = calData[key]?.total_minutes || 0;
     const isToday  = calYear===today.getFullYear() && calMonth===today.getMonth()+1 && d===today.getDate();
     const isFuture = new Date(calYear, calMonth-1, d) > today;
-
     const cell = document.createElement('div');
     cell.className = `cal-cell l${heatLevel(mins)}${isToday?' today':''}${isFuture?' future':''}`;
-
-    const num = document.createElement('div');
-    num.className = 'cal-day-num'; num.textContent = d;
-
-    const hr = document.createElement('div');
-    hr.className = 'cal-day-hours';
-    if (mins > 0) {
-      const hh = Math.floor(mins/60), mm = Math.floor(mins%60);
-      hr.textContent = hh > 0 ? `${hh}h${mm}m` : `${mm}m`;
-    }
+    const num = document.createElement('div'); num.className = 'cal-day-num'; num.textContent = d;
+    const hr  = document.createElement('div'); hr.className = 'cal-day-hours';
+    if (mins > 0) { const hh=Math.floor(mins/60),mm=Math.floor(mins%60); hr.textContent = hh>0?`${hh}h${mm}m`:`${mm}m`; }
     cell.appendChild(num); cell.appendChild(hr);
     if (!isFuture) cell.addEventListener('click', () => showDayDetail(key, d));
     grid.appendChild(cell);
   }
 }
-
-function heatLevel(m) {
-  if (m <= 0)  return 0; if (m < 60)  return 1;
-  if (m < 120) return 2; if (m < 240) return 3; return 4;
-}
+function heatLevel(m) { if(m<=0)return 0; if(m<60)return 1; if(m<120)return 2; if(m<240)return 3; return 4; }
 
 async function showDayDetail(dateKey, dayNum) {
   if (!calDayCache[dateKey]) {
@@ -327,7 +288,7 @@ async function showDayDetail(dateKey, dayNum) {
   const body = document.getElementById('day-detail-body');
   body.innerHTML = sessions.length
     ? sessions.map(s => {
-        const h = Math.floor(s.duration_minutes/60), m = Math.floor(s.duration_minutes%60);
+        const h=Math.floor(s.duration_minutes/60),m=Math.floor(s.duration_minutes%60);
         return `<div class="day-session-item">
           <span class="day-session-time">${fmtTime(s.start_time)} → ${fmtTime(s.end_time)}</span>
           <span class="day-session-dur">${h>0?`${h}時間${m}分`:`${m}分`}</span>
@@ -337,7 +298,6 @@ async function showDayDetail(dateKey, dayNum) {
   document.getElementById('day-detail').classList.remove('hidden');
   document.getElementById('day-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
-
 function closeDayDetail() { document.getElementById('day-detail').classList.add('hidden'); }
 function fmtTime(iso) {
   if (!iso) return '—';
@@ -370,7 +330,7 @@ async function loadDailyChart() {
   }
   const data = await authFetch('/api/history?limit=500').then(r => r.json());
   const map  = {};
-  for (const s of data.sessions) { const k = s.start_time.slice(0,10); map[k] = (map[k]||0) + s.duration_minutes; }
+  for (const s of data.sessions) { const k=s.start_time.slice(0,10); map[k]=(map[k]||0)+s.duration_minutes; }
   const values = days.map(k => Math.round((map[k]||0)/60*10)/10);
   const ctx = document.getElementById('daily-chart').getContext('2d');
   if (dailyChart) dailyChart.destroy();
@@ -405,23 +365,21 @@ async function loadHistory(reset = false) {
   document.getElementById('history-count').textContent = `全 ${historyTotal} 件`;
   document.getElementById('history-more').classList.toggle('hidden', historyOffset >= historyTotal);
 }
-
 function loadMoreHistory() { loadHistory(false); }
 
 function renderHistoryItems(sessions) {
   const list   = document.getElementById('history-list');
   const groups = {};
-  for (const s of sessions) { const k = s.start_time.slice(0,10); if (!groups[k]) groups[k]=[]; groups[k].push(s); }
+  for (const s of sessions) { const k=s.start_time.slice(0,10); if(!groups[k])groups[k]=[]; groups[k].push(s); }
   for (const [dateKey, items] of Object.entries(groups)) {
     const label = new Date(dateKey+'T00:00:00').toLocaleDateString('ja-JP', { year:'numeric',month:'long',day:'numeric',weekday:'long' });
     const g = document.createElement('div');
     g.innerHTML = `<div class="history-group-label">${label}</div>`;
     list.appendChild(g);
     for (const s of items) {
-      const st = fmtDatetime(s.start_time), en = fmtDatetime(s.end_time);
-      const h = Math.floor(s.duration_minutes/60), m = Math.floor(s.duration_minutes%60);
-      const item = document.createElement('div');
-      item.className = 'history-item';
+      const st=fmtDatetime(s.start_time), en=fmtDatetime(s.end_time);
+      const h=Math.floor(s.duration_minutes/60), m=Math.floor(s.duration_minutes%60);
+      const item = document.createElement('div'); item.className = 'history-item';
       item.innerHTML = `
         <div class="history-date">${st.date}</div>
         <div class="history-time-range">${st.time} → ${en.time}</div>
@@ -433,13 +391,11 @@ function renderHistoryItems(sessions) {
     }
   }
 }
-
 function fmtDatetime(iso) {
   if (!iso) return { date: '—', time: '—' };
   const d = new Date(iso);
   return { date: d.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'}), time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
 }
-
 async function deleteSession(id, btn) {
   if (!confirm('このセッションを削除しますか？')) return;
   const res = await authFetch(`/api/sessions/${id}`, { method: 'DELETE' });
@@ -452,108 +408,237 @@ async function deleteSession(id, btn) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   TODO
+══════════════════════════════════════════════════════════ */
+async function loadTodos() {
+  const todos = await authFetch('/api/todos').then(r => r.json());
+  renderTodoList(todos);
+}
+
+async function loadHomeTodos() {
+  const todos = await authFetch('/api/todos').then(r => r.json());
+  renderHomeTodos(todos);
+}
+
+function renderTodoList(todos) {
+  const list = document.getElementById('todo-list');
+  if (!list) return;
+  if (todos.length === 0) {
+    list.innerHTML = `<div class="todo-empty">タスクがありません。上のフォームから追加してください。</div>`;
+    return;
+  }
+  list.innerHTML = todos.map(t => {
+    const pct  = t.target_hours > 0 ? Math.min(100, (t.done_hours / t.target_hours) * 100) : 0;
+    const done = t.completed || pct >= 100;
+    return `
+    <div class="todo-item${done ? ' todo-done' : ''}" id="todo-item-${t.id}">
+      <div class="todo-item-top">
+        <label class="todo-check-wrap">
+          <input type="checkbox" ${done ? 'checked' : ''} onchange="toggleTodoComplete(${t.id}, this.checked)" />
+          <span class="todo-check-box"></span>
+        </label>
+        <span class="todo-item-title">${escHtml(t.title)}</span>
+        <div class="todo-item-actions">
+          <button class="todo-log-btn" onclick="logTodoTime(${t.id}, ${t.done_hours}, ${t.target_hours})" title="時間を記録">+</button>
+          <button class="todo-del-btn" onclick="deleteTodo(${t.id})" title="削除">×</button>
+        </div>
+      </div>
+      <div class="todo-progress-row">
+        <div class="todo-progress-bar"><div class="todo-progress-fill" style="width:${pct}%"></div></div>
+        <span class="todo-progress-text">${t.done_hours}h / ${t.target_hours}h</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderHomeTodos(todos) {
+  const list = document.getElementById('home-todo-list');
+  if (!list) return;
+  const active = todos.filter(t => !t.completed).slice(0, 4);
+  if (active.length === 0) {
+    list.innerHTML = `<div class="todo-empty">進行中のタスクはありません。<button class="link-btn" onclick="showPage('todo')">ToDoを追加する →</button></div>`;
+    return;
+  }
+  list.innerHTML = active.map(t => {
+    const pct = t.target_hours > 0 ? Math.min(100, (t.done_hours / t.target_hours) * 100) : 0;
+    return `
+    <div class="home-todo-item">
+      <span class="home-todo-title">${escHtml(t.title)}</span>
+      <div class="todo-progress-bar"><div class="todo-progress-fill" style="width:${pct}%"></div></div>
+      <span class="home-todo-pct">${Math.round(pct)}%</span>
+    </div>`;
+  }).join('');
+}
+
+async function addTodo() {
+  const titleEl = document.getElementById('todo-title-input');
+  const hoursEl = document.getElementById('todo-hours-input');
+  const title   = titleEl.value.trim();
+  const hours   = parseFloat(hoursEl.value) || 1;
+  if (!title) { titleEl.focus(); return; }
+  await authFetch('/api/todos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, target_hours: hours }),
+  });
+  titleEl.value = ''; hoursEl.value = '1';
+  loadTodos(); loadHomeTodos();
+}
+
+async function toggleTodoComplete(id, completed) {
+  await authFetch(`/api/todos/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completed }),
+  });
+  loadTodos(); loadHomeTodos();
+}
+
+async function deleteTodo(id) {
+  if (!confirm('このタスクを削除しますか？')) return;
+  await authFetch(`/api/todos/${id}`, { method: 'DELETE' });
+  loadTodos(); loadHomeTodos();
+}
+
+async function logTodoTime(id, currentDone, target) {
+  const input = prompt(`完了した時間を入力してください（現在: ${currentDone}h / 目標: ${target}h）`, '0.5');
+  if (input === null) return;
+  const add = parseFloat(input);
+  if (isNaN(add) || add < 0) return;
+  const newDone = Math.round((currentDone + add) * 10) / 10;
+  await authFetch(`/api/todos/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ done_hours: newDone, completed: newDone >= target }),
+  });
+  loadTodos(); loadHomeTodos();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ══════════════════════════════════════════════════════════
+   REWARDS
+══════════════════════════════════════════════════════════ */
+const MILESTONES = [
+  { hours: 10,   emoji: '🌱', label: 'はじめの一歩',  reward: '学習の旅がスタートしました！この調子で続けましょう。', color: '#10B981' },
+  { hours: 50,   emoji: '⭐', label: '本気の学習者',   reward: '50時間突破！学習が習慣になってきた証拠です。', color: '#F59E0B' },
+  { hours: 100,  emoji: '🥉', label: '百時間の勇者',   reward: '100時間達成！ブロンズランクに到達。プロフィールに「学習者」称号が解放されました。', color: '#CD7F32' },
+  { hours: 200,  emoji: '🥈', label: '努力家',         reward: '200時間達成！シルバーランク。モチベーション名言コレクション（10選）が解放されました。', color: '#94A3B8' },
+  { hours: 300,  emoji: '🥇', label: '秀才',           reward: '300時間達成！ゴールドランク。特別カレンダーテーマが解放されました。', color: '#FBBF24' },
+  { hours: 500,  emoji: '💎', label: '超人',           reward: '500時間達成！ダイヤモンドランク。プレミアムパープルテーマが解放されました。', color: '#818CF8' },
+  { hours: 1000, emoji: '👑', label: '学習マスター',   reward: '1000時間達成！殿堂入り。全テーマ・全称号・特別エフェクトが解放されました！', color: '#F472B6' },
+];
+
+const QUOTES = [
+  '「学ぶことをやめた時、教えることもやめなければならない」— サン＝テグジュペリ',
+  '「千里の道も一歩から」— 中国の諺',
+  '「努力は必ず報われる」— 王貞治',
+  '「今日できることを明日に延ばすな」— ベンジャミン・フランクリン',
+  '「成功とは、情熱を失わずに失敗から失敗へと進んでいく能力だ」— ウィンストン・チャーチル',
+  '「夢を見るだけでは不十分だ、それを実行しなければ」— 福沢諭吉',
+  '「学習は宝、それを使う人を決して裏切らない」— 中国の諺',
+  '「どれだけ遅くても、歩み続ける者は止まっている者を超える」— 孔子',
+  '「1万時間の法則。真の習熟には1万時間の練習が必要だ」— マルコム・グラッドウェル',
+  '「今日の努力が、明日の可能性を広げる」',
+];
+
+async function loadRewards() {
+  const data = await authFetch('/api/total-hours').then(r => r.json());
+  const total = data.total_hours;
+
+  document.getElementById('rewards-total-hours').textContent = `${total} h`;
+
+  // 次のマイルストーンまでのヒント
+  const next = MILESTONES.find(m => m.hours > total);
+  const hint = next
+    ? `次のご褒美まで あと ${Math.ceil(next.hours - total)} 時間 (${next.emoji} ${next.label})`
+    : '🎉 全てのマイルストーンを達成しました！';
+  document.getElementById('rewards-next-hint').textContent = hint;
+
+  const grid = document.getElementById('rewards-grid');
+  grid.innerHTML = MILESTONES.map(m => {
+    const unlocked = total >= m.hours;
+    const pct      = Math.min(100, Math.round((total / m.hours) * 100));
+    const showQuotes = unlocked && m.hours >= 200;
+    return `
+    <div class="reward-card${unlocked ? ' unlocked' : ' locked'}">
+      <div class="reward-emoji" style="${unlocked ? `color:${m.color}` : ''}">${unlocked ? m.emoji : '🔒'}</div>
+      <div class="reward-label">${m.label}</div>
+      <div class="reward-hours">${m.hours}時間達成</div>
+      ${unlocked
+        ? `<div class="reward-desc">${m.reward}</div>
+           ${showQuotes ? `<div class="reward-quote">${QUOTES[Math.floor(Math.random()*QUOTES.length)]}</div>` : ''}`
+        : `<div class="reward-progress-bar"><div class="reward-progress-fill" style="width:${pct}%;background:${m.color}"></div></div>
+           <div class="reward-progress-text">${total}h / ${m.hours}h (${pct}%)</div>`
+      }
+    </div>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════
    MONETIZATION
 ══════════════════════════════════════════════════════════ */
 const AFFILIATE_ITEMS = [
-  { emoji: '⏱️', title: '勉強タイマー',      desc: 'ポモドーロ・カウントダウン対応。集中力UP！', q: '勉強+タイマー' },
-  { emoji: '📓', title: '学習ノート・手帳',   desc: '計画を可視化して継続率アップ。',              q: '学習+手帳+スケジュール' },
+  { emoji: '⏱️', title: '勉強タイマー',       desc: 'ポモドーロ・カウントダウン対応。集中力UP！', q: '勉強+タイマー' },
+  { emoji: '📓', title: '学習ノート・手帳',    desc: '計画を可視化して継続率アップ。',              q: '学習+手帳+スケジュール' },
   { emoji: '🎧', title: 'ノイズキャンセリング', desc: 'カフェや自習室でも集中できる環境を。',       q: 'ノイズキャンセリング+勉強' },
-  { emoji: '💡', title: '学習用デスクライト',  desc: '目に優しい光で長時間学習をサポート。',       q: 'デスクライト+勉強' },
-  { emoji: '📚', title: '人気参考書・問題集',  desc: '最新の人気学習本をチェック。',               q: '参考書+問題集+資格' },
-  { emoji: '🪑', title: '姿勢サポートグッズ', desc: '腰痛対策で長時間学習を快適に。',              q: '腰痛+クッション+椅子' },
+  { emoji: '💡', title: '学習用デスクライト',   desc: '目に優しい光で長時間学習をサポート。',       q: 'デスクライト+勉強' },
+  { emoji: '📚', title: '人気参考書・問題集',   desc: '最新の人気学習本をチェック。',               q: '参考書+問題集+資格' },
+  { emoji: '🪑', title: '姿勢サポートグッズ',  desc: '腰痛対策で長時間学習を快適に。',              q: '腰痛+クッション+椅子' },
 ];
 
 async function loadMonetization() {
   let cfg = {};
   try { cfg = await fetch('/api/site-config').then(r => r.json()); } catch {}
-
   renderAffiliateSection(cfg.amazon_tag || '');
   renderSupportButtons(cfg);
   injectAdSense(cfg.adsense_id || '');
   injectBMCWidget(cfg.bmc_username || '');
 }
 
-/* ── アフィリエイト ───────────────────────────────────────── */
 function renderAffiliateSection(tag) {
   const grid = document.getElementById('affiliate-grid');
   if (!grid) return;
   grid.innerHTML = AFFILIATE_ITEMS.map(item => {
     const tagParam = tag ? `&tag=${tag}` : '';
     const url = `https://www.amazon.co.jp/s?k=${encodeURIComponent(item.q)}${tagParam}`;
-    return `
-      <a href="${url}" target="_blank" rel="noopener" class="affiliate-card">
-        <div class="affiliate-card-emoji">${item.emoji}</div>
-        <div class="affiliate-card-title">${item.title}</div>
-        <div class="affiliate-card-desc">${item.desc}</div>
-        <div class="affiliate-card-link">Amazonで見る →</div>
-      </a>`;
+    return `<a href="${url}" target="_blank" rel="noopener" class="affiliate-card">
+      <div class="affiliate-card-emoji">${item.emoji}</div>
+      <div class="affiliate-card-title">${item.title}</div>
+      <div class="affiliate-card-desc">${item.desc}</div>
+      <div class="affiliate-card-link">Amazonで見る →</div>
+    </a>`;
   }).join('');
 }
 
-/* ── サポートボタン ──────────────────────────────────────── */
 function renderSupportButtons(cfg) {
   const wrap = document.getElementById('support-buttons');
   if (!wrap) return;
   const btns = [];
-
-  if (cfg.bmc_username) {
-    btns.push(`<a href="https://www.buymeacoffee.com/${cfg.bmc_username}" target="_blank" rel="noopener" class="support-btn btn-bmc">
-      ☕ Buy Me a Coffee
-    </a>`);
-  }
-  if (cfg.kofi_username) {
-    btns.push(`<a href="https://ko-fi.com/${cfg.kofi_username}" target="_blank" rel="noopener" class="support-btn btn-kofi">
-      ❤️ Ko-fi でサポート
-    </a>`);
-  }
-  if (cfg.stripe_link) {
-    btns.push(`<a href="${cfg.stripe_link}" target="_blank" rel="noopener" class="support-btn btn-stripe">
-      💳 カードで寄付する
-    </a>`);
-  }
-
-  if (btns.length === 0) {
-    wrap.innerHTML = `<p style="color:var(--text3);font-size:13px;">近日公開予定</p>`;
-  } else {
-    wrap.innerHTML = btns.join('');
-  }
+  if (cfg.bmc_username) btns.push(`<a href="https://www.buymeacoffee.com/${cfg.bmc_username}" target="_blank" rel="noopener" class="support-btn btn-bmc">☕ Buy Me a Coffee</a>`);
+  if (cfg.kofi_username) btns.push(`<a href="https://ko-fi.com/${cfg.kofi_username}" target="_blank" rel="noopener" class="support-btn btn-kofi">❤️ Ko-fi でサポート</a>`);
+  if (cfg.stripe_link)  btns.push(`<a href="${cfg.stripe_link}" target="_blank" rel="noopener" class="support-btn btn-stripe">💳 カードで寄付する</a>`);
+  wrap.innerHTML = btns.length ? btns.join('') : `<p style="color:var(--text3);font-size:13px;">近日公開予定</p>`;
 }
 
-/* ── Google AdSense ──────────────────────────────────────── */
 function injectAdSense(publisherId) {
   if (!publisherId) return;
   const s = document.createElement('script');
-  s.async = true;
-  s.src   = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}`;
-  s.setAttribute('crossorigin', 'anonymous');
-  document.head.appendChild(s);
-  ['ad-slot-1', 'ad-slot-2'].forEach(slotId => {
-    const el = document.getElementById(slotId);
-    if (!el) return;
-    el.innerHTML = `
-      <ins class="adsbygoogle"
-           style="display:block"
-           data-ad-client="${publisherId}"
-           data-ad-slot="auto"
-           data-ad-format="auto"
-           data-full-width-responsive="true"></ins>`;
+  s.async = true; s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}`;
+  s.setAttribute('crossorigin', 'anonymous'); document.head.appendChild(s);
+  ['ad-slot-1','ad-slot-2'].forEach(slotId => {
+    const el = document.getElementById(slotId); if (!el) return;
+    el.innerHTML = `<ins class="adsbygoogle" style="display:block" data-ad-client="${publisherId}" data-ad-slot="auto" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
     try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch {}
   });
 }
 
-/* ── Buy Me a Coffee フローティングウィジェット ─────────── */
 function injectBMCWidget(username) {
   if (!username) return;
   const s = document.createElement('script');
-  s.setAttribute('data-name',        'BMC-Widget');
-  s.setAttribute('data-cfasync',     'false');
-  s.setAttribute('data-id',          username);
-  s.setAttribute('data-description', 'StudyFlowを応援する');
-  s.setAttribute('data-message',     '学習の継続をサポートします！');
-  s.setAttribute('data-color',       '#6366F1');
-  s.setAttribute('data-position',    'Right');
-  s.setAttribute('data-x_margin',    '18');
-  s.setAttribute('data-y_margin',    '18');
+  s.setAttribute('data-name','BMC-Widget'); s.setAttribute('data-cfasync','false');
+  s.setAttribute('data-id',username); s.setAttribute('data-description','StudyFlowを応援する');
+  s.setAttribute('data-message','学習の継続をサポートします！'); s.setAttribute('data-color','#6366F1');
+  s.setAttribute('data-position','Right'); s.setAttribute('data-x_margin','18'); s.setAttribute('data-y_margin','18');
   s.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
   document.body.appendChild(s);
 }

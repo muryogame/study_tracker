@@ -106,6 +106,34 @@ body {
 .hidden { display: none !important; }
 
 /* ══════════════════════════════════════════════════════════
+   NAVIGATION
+══════════════════════════════════════════════════════════ */
+.main-nav {
+  position: sticky; top: 60px; z-index: 90;
+  background: rgba(8,13,26,.95);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border2);
+  display: flex; justify-content: center; gap: 4px;
+  padding: 8px 16px;
+}
+.nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 20px; border-radius: 10px;
+  border: none; background: transparent;
+  color: var(--text3); cursor: pointer;
+  transition: background .15s, color .15s;
+  min-width: 72px;
+}
+.nav-btn:hover  { background: var(--surface2); color: var(--text2); }
+.nav-btn.active { background: var(--surface2); color: var(--primary2); }
+.nav-icon  { font-size: 18px; }
+.nav-label { font-size: 11px; font-weight: 600; }
+
+/* ── Pages ───────────────────────────────────────────────── */
+.page { animation: fadeIn .2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ══════════════════════════════════════════════════════════
    HEADER
 ══════════════════════════════════════════════════════════ */
 .header {
@@ -545,3 +573,186 @@ body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+
+/* ══════════════════════════════════════════════════════════
+   HOME TODO PROGRESS
+══════════════════════════════════════════════════════════ */
+.see-all-btn {
+  padding: 6px 14px; border-radius: 8px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--primary2); font-size: 13px; cursor: pointer;
+  transition: background .15s;
+}
+.see-all-btn:hover { background: var(--surface2); }
+
+.home-todo-list { display: flex; flex-direction: column; gap: 10px; }
+
+.home-todo-item {
+  display: grid; grid-template-columns: 1fr auto auto;
+  align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 12px 16px;
+}
+.home-todo-title { font-size: 14px; font-weight: 500; color: var(--text); }
+.home-todo-pct   { font-size: 12px; font-weight: 700; color: var(--primary2); white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════════════
+   TODO PAGE
+══════════════════════════════════════════════════════════ */
+.todo-add-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px; margin-bottom: 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.todo-input {
+  width: 100%; padding: 12px 14px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text);
+  font-size: 15px; outline: none;
+  transition: border-color .15s;
+}
+.todo-input:focus { border-color: var(--primary); }
+.todo-input::placeholder { color: var(--text3); }
+
+.todo-add-row {
+  display: flex; align-items: center; gap: 12px;
+}
+.todo-hours-wrap {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 12px;
+}
+.todo-hours-label { font-size: 13px; color: var(--text2); white-space: nowrap; }
+.todo-hours-input {
+  width: 56px; background: transparent; border: none;
+  color: var(--text); font-size: 15px; font-weight: 600;
+  outline: none; text-align: center;
+}
+.todo-hours-unit { font-size: 13px; color: var(--text2); }
+.todo-add-btn {
+  padding: 10px 24px;
+  background: linear-gradient(135deg, #6366F1, #8B5CF6);
+  border: none; border-radius: 10px;
+  color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+  transition: opacity .15s; white-space: nowrap;
+}
+.todo-add-btn:hover { opacity: .88; }
+
+.todo-list { display: flex; flex-direction: column; gap: 12px; }
+.todo-empty { color: var(--text3); font-size: 14px; padding: 24px 0; text-align: center; }
+.link-btn   { background: none; border: none; color: var(--primary2); cursor: pointer; font-size: 14px; text-decoration: underline; }
+
+.todo-item {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 12px; padding: 14px 16px;
+  transition: border-color .15s;
+}
+.todo-item:hover    { border-color: var(--border); }
+.todo-item.todo-done { opacity: .55; }
+
+.todo-item-top {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+}
+.todo-check-wrap { display: flex; align-items: center; cursor: pointer; flex-shrink: 0; }
+.todo-check-wrap input { display: none; }
+.todo-check-box {
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 2px solid var(--border); background: var(--surface2);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.todo-check-wrap input:checked + .todo-check-box {
+  background: var(--primary); border-color: var(--primary);
+}
+.todo-check-wrap input:checked + .todo-check-box::after {
+  content: '✓'; color: #fff; font-size: 12px; font-weight: 700;
+}
+
+.todo-item-title {
+  flex: 1; font-size: 15px; font-weight: 500; color: var(--text);
+}
+.todo-done .todo-item-title { text-decoration: line-through; color: var(--text3); }
+
+.todo-item-actions { display: flex; gap: 6px; }
+.todo-log-btn, .todo-del-btn {
+  width: 28px; height: 28px; border-radius: 7px; border: none;
+  font-size: 16px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.todo-log-btn { background: var(--surface2); color: var(--primary2); }
+.todo-log-btn:hover { background: var(--surface3); }
+.todo-del-btn { background: var(--surface2); color: var(--text3); }
+.todo-del-btn:hover { background: rgba(239,68,68,.15); color: var(--danger); }
+
+.todo-progress-row {
+  display: flex; align-items: center; gap: 10px;
+}
+.todo-progress-bar {
+  flex: 1; height: 6px; background: var(--surface3);
+  border-radius: 3px; overflow: hidden;
+}
+.todo-progress-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, #6366F1, #8B5CF6);
+  transition: width .4s ease;
+}
+.todo-progress-text { font-size: 12px; color: var(--text3); white-space: nowrap; }
+
+/* home-todo も同じバーを使う */
+.home-todo-item .todo-progress-bar { flex: 1; }
+
+/* ══════════════════════════════════════════════════════════
+   REWARDS PAGE
+══════════════════════════════════════════════════════════ */
+.rewards-total-card {
+  background: linear-gradient(135deg, rgba(99,102,241,.15), rgba(139,92,246,.15));
+  border: 1px solid var(--border); border-radius: 16px;
+  padding: 32px; text-align: center; margin-bottom: 32px;
+}
+.rewards-total-label { font-size: 13px; color: var(--text2); margin-bottom: 8px; }
+.rewards-total-value {
+  font-size: 52px; font-weight: 800;
+  background: linear-gradient(135deg, #6366F1, #8B5CF6);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  line-height: 1;
+}
+.rewards-total-sub { font-size: 13px; color: var(--text2); margin-top: 12px; }
+
+.rewards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.reward-card {
+  border-radius: 14px; padding: 24px;
+  border: 1px solid var(--border2);
+  transition: transform .15s, border-color .15s;
+}
+.reward-card.unlocked {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.reward-card.unlocked:hover { transform: translateY(-2px); border-color: var(--primary); }
+.reward-card.locked {
+  background: var(--surface2);
+  opacity: .65;
+}
+
+.reward-emoji  { font-size: 36px; margin-bottom: 8px; }
+.reward-label  { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.reward-hours  { font-size: 12px; color: var(--text2); margin-bottom: 10px; }
+.reward-desc   { font-size: 13px; color: var(--text2); line-height: 1.6; }
+.reward-quote  {
+  margin-top: 12px; padding: 10px 12px;
+  background: var(--surface2); border-left: 3px solid var(--primary);
+  border-radius: 0 8px 8px 0; font-size: 12px; color: var(--text2); font-style: italic;
+  line-height: 1.6;
+}
+.reward-progress-bar {
+  height: 6px; background: var(--surface3); border-radius: 3px;
+  overflow: hidden; margin-bottom: 6px;
+}
+.reward-progress-fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
+.reward-progress-text { font-size: 12px; color: var(--text3); }

@@ -100,6 +100,17 @@ def init_db():
                 duration_minutes REAL
             )
         """))
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS todos (
+                id           {SERIAL},
+                user_id      INTEGER,
+                title        TEXT NOT NULL,
+                target_hours REAL DEFAULT 1.0,
+                done_hours   REAL DEFAULT 0.0,
+                completed    INTEGER DEFAULT 0,
+                created_at   TEXT NOT NULL
+            )
+        """))
         # 既存テーブルに user_id カラムを追加（マイグレーション）
         try:
             if IS_PG:
@@ -319,6 +330,79 @@ def delete_session(session_id: int, uid: int = Depends(get_optional_user_id)):
         conn.execute(text(
             "DELETE FROM sessions WHERE id=:id AND user_id=:u"
         ), {"id": session_id, "u": uid})
+    return {"ok": True}
+
+
+@app.get("/api/total-hours")
+def get_total_hours(uid: int = Depends(get_optional_user_id)):
+    with get_db() as conn:
+        result = conn.execute(text(
+            "SELECT COALESCE(SUM(duration_minutes), 0) / 60.0 AS h FROM sessions "
+            "WHERE end_time IS NOT NULL AND user_id=:u"
+        ), {"u": uid}).fetchone()
+    return {"total_hours": round(result[0], 1)}
+
+
+# ── ToDo API ──────────────────────────────────────────────────
+class TodoBody(BaseModel):
+    title: str
+    target_hours: float = 1.0
+
+class TodoUpdateBody(BaseModel):
+    done_hours: Optional[float] = None
+    completed: Optional[bool] = None
+
+
+@app.get("/api/todos")
+def get_todos(uid: int = Depends(get_optional_user_id)):
+    with get_db() as conn:
+        rows = conn.execute(text(
+            "SELECT id, title, target_hours, done_hours, completed, created_at FROM todos "
+            "WHERE user_id=:u ORDER BY completed ASC, created_at DESC"
+        ), {"u": uid}).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/todos")
+def create_todo(body: TodoBody, uid: int = Depends(get_optional_user_id)):
+    with get_db() as conn:
+        now = datetime.now().isoformat()
+        if IS_PG:
+            row = conn.execute(text(
+                "INSERT INTO todos (user_id, title, target_hours, done_hours, completed, created_at) "
+                "VALUES (:u,:t,:th,0,false,:n) RETURNING id"
+            ), {"u": uid, "t": body.title, "th": body.target_hours, "n": now}).fetchone()
+            tid = row[0]
+        else:
+            result = conn.execute(text(
+                "INSERT INTO todos (user_id, title, target_hours, done_hours, completed, created_at) "
+                "VALUES (:u,:t,:th,0,0,:n)"
+            ), {"u": uid, "t": body.title, "th": body.target_hours, "n": now})
+            tid = result.lastrowid
+    return {"id": tid, "title": body.title, "target_hours": body.target_hours,
+            "done_hours": 0, "completed": False}
+
+
+@app.put("/api/todos/{todo_id}")
+def update_todo(todo_id: int, body: TodoUpdateBody, uid: int = Depends(get_optional_user_id)):
+    with get_db() as conn:
+        if body.done_hours is not None:
+            conn.execute(text(
+                "UPDATE todos SET done_hours=:d WHERE id=:id AND user_id=:u"
+            ), {"d": body.done_hours, "id": todo_id, "u": uid})
+        if body.completed is not None:
+            conn.execute(text(
+                "UPDATE todos SET completed=:c WHERE id=:id AND user_id=:u"
+            ), {"c": 1 if body.completed else 0, "id": todo_id, "u": uid})
+    return {"ok": True}
+
+
+@app.delete("/api/todos/{todo_id}")
+def delete_todo(todo_id: int, uid: int = Depends(get_optional_user_id)):
+    with get_db() as conn:
+        conn.execute(text(
+            "DELETE FROM todos WHERE id=:id AND user_id=:u"
+        ), {"id": todo_id, "u": uid})
     return {"ok": True}
 
 

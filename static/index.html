@@ -15,7 +15,6 @@
 
 <!-- ── Auth Widget（右上固定） ─────────────────────────── -->
 <div id="auth-widget" class="auth-widget">
-  <!-- 未ログイン時 -->
   <div id="auth-form-section">
     <div class="auth-tabs">
       <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">ログイン</button>
@@ -29,7 +28,6 @@
       <button id="auth-submit-btn" class="auth-submit" onclick="submitAuth()">ログイン</button>
     </div>
   </div>
-  <!-- ログイン済み時 -->
   <div id="auth-user-section" class="hidden">
     <div class="auth-user-email" id="auth-user-email"></div>
     <button class="auth-logout-btn" onclick="logout()">ログアウト</button>
@@ -57,172 +55,270 @@
   </div>
 </header>
 
-<!-- ── Hero ───────────────────────────────────────────── -->
-<section class="hero">
-  <div class="container">
-    <div class="hero-grid">
-      <div class="touch-card">
-        <div class="touch-status" id="touch-status">学習を始めましょう</div>
-        <div class="touch-wrap">
-          <button id="touch-btn" class="touch-btn idle" onclick="toggleSession()">
-            <div class="touch-btn-inner">
-              <span class="touch-icon">
-                <svg id="touch-icon-svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
-                  <path d="M18 6v12M18 6l-5 5M18 6l5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M6 18c0 6.627 5.373 12 12 12s12-5.373 12-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-                </svg>
-              </span>
-              <span class="touch-label" id="touch-label">START</span>
-              <span class="touch-sub" id="touch-sub">タッチして開始</span>
+<!-- ── Navigation ─────────────────────────────────────── -->
+<nav class="main-nav">
+  <button class="nav-btn active" data-page="home" onclick="showPage('home')">
+    <span class="nav-icon">🏠</span>
+    <span class="nav-label">Home</span>
+  </button>
+  <button class="nav-btn" data-page="calendar" onclick="showPage('calendar')">
+    <span class="nav-icon">📅</span>
+    <span class="nav-label">カレンダー</span>
+  </button>
+  <button class="nav-btn" data-page="analysis" onclick="showPage('analysis')">
+    <span class="nav-icon">📊</span>
+    <span class="nav-label">分析</span>
+  </button>
+  <button class="nav-btn" data-page="todo" onclick="showPage('todo')">
+    <span class="nav-icon">✅</span>
+    <span class="nav-label">ToDo</span>
+  </button>
+  <button class="nav-btn" data-page="rewards" onclick="showPage('rewards')">
+    <span class="nav-icon">🏆</span>
+    <span class="nav-label">ご褒美</span>
+  </button>
+</nav>
+
+<!-- ════════════════════════════════════════════════════
+     PAGE: HOME
+════════════════════════════════════════════════════ -->
+<div id="page-home" class="page">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-grid">
+        <div class="touch-card">
+          <div class="touch-status" id="touch-status">学習を始めましょう</div>
+          <div class="touch-wrap">
+            <button id="touch-btn" class="touch-btn idle" onclick="toggleSession()">
+              <div class="touch-btn-inner">
+                <span class="touch-icon">
+                  <svg id="touch-icon-svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+                    <path d="M18 6v12M18 6l-5 5M18 6l5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M6 18c0 6.627 5.373 12 12 12s12-5.373 12-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="touch-label" id="touch-label">START</span>
+                <span class="touch-sub" id="touch-sub">タッチして開始</span>
+              </div>
+            </button>
+          </div>
+          <div class="live-timer">
+            <span class="live-timer-label">経過時間</span>
+            <span class="live-timer-value" id="live-timer-value">—</span>
+          </div>
+        </div>
+        <div class="today-stats">
+          <div class="stat-card today-card">
+            <div class="stat-icon">📅</div>
+            <div class="stat-body">
+              <div class="stat-label">今日の学習</div>
+              <div class="stat-value" id="today-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
             </div>
+          </div>
+          <div class="stat-card weekly-card">
+            <div class="stat-icon">📊</div>
+            <div class="stat-body">
+              <div class="stat-label">今週の合計</div>
+              <div class="stat-value" id="weekly-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
+            </div>
+          </div>
+          <div class="stat-card monthly-card">
+            <div class="stat-icon">🗓️</div>
+            <div class="stat-body">
+              <div class="stat-label">今月の合計</div>
+              <div class="stat-value" id="monthly-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
+            </div>
+          </div>
+          <div class="stat-card streak-card">
+            <div class="stat-icon">🔥</div>
+            <div class="stat-body">
+              <div class="stat-label">直近30日 学習日数</div>
+              <div class="stat-value" id="streak-value">0<span class="stat-unit">日</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AdSense① -->
+  <div id="ad-slot-1" class="ad-slot container"></div>
+
+  <!-- ToDo Progress (Home) -->
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">📋 ToDoの進捗</h2>
+        <button class="see-all-btn" onclick="showPage('todo')">すべて見る →</button>
+      </div>
+      <div id="home-todo-list" class="home-todo-list"></div>
+    </div>
+  </section>
+
+  <!-- Affiliate -->
+  <section class="section affiliate-section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">📚 おすすめ学習グッズ</h2>
+        <span class="affiliate-note">※ Amazonアソシエイト広告を含みます</span>
+      </div>
+      <div id="affiliate-grid" class="affiliate-grid"></div>
+    </div>
+  </section>
+
+  <!-- AdSense② -->
+  <div id="ad-slot-2" class="ad-slot container"></div>
+
+  <!-- Support -->
+  <section class="section support-section" id="support-section">
+    <div class="container">
+      <div class="support-card">
+        <div class="support-emoji">☕</div>
+        <h2 class="support-title">StudyFlow を応援する</h2>
+        <p class="support-desc">このアプリが役に立ったら、コーヒー1杯分のサポートをお願いします。<br>継続的な開発・改善の励みになります。</p>
+        <div class="support-buttons" id="support-buttons"></div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /page-home -->
+
+
+<!-- ════════════════════════════════════════════════════
+     PAGE: CALENDAR
+════════════════════════════════════════════════════ -->
+<div id="page-calendar" class="page hidden">
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">学習カレンダー</h2>
+        <div class="cal-nav">
+          <button class="cal-nav-btn" onclick="changeMonth(-1)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span id="cal-title" class="cal-title"></span>
+          <button class="cal-nav-btn" onclick="changeMonth(1)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>
-        <div class="live-timer">
-          <span class="live-timer-label">経過時間</span>
-          <span class="live-timer-value" id="live-timer-value">—</span>
+      </div>
+      <div class="calendar-wrap">
+        <div class="cal-dow-labels">
+          <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+        </div>
+        <div id="cal-grid" class="cal-grid"></div>
+        <div class="cal-color-legend">
+          <span class="legend-label">少</span>
+          <div class="legend-swatch s0"></div><div class="legend-swatch s1"></div>
+          <div class="legend-swatch s2"></div><div class="legend-swatch s3"></div>
+          <div class="legend-swatch s4"></div>
+          <span class="legend-label">多</span>
         </div>
       </div>
-      <div class="today-stats">
-        <div class="stat-card today-card">
-          <div class="stat-icon">📅</div>
-          <div class="stat-body">
-            <div class="stat-label">今日の学習</div>
-            <div class="stat-value" id="today-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
+      <div id="day-detail" class="day-detail hidden">
+        <div class="day-detail-header">
+          <span id="day-detail-title"></span>
+          <button class="close-btn" onclick="closeDayDetail()">×</button>
+        </div>
+        <div id="day-detail-body"></div>
+      </div>
+    </div>
+  </section>
+</div><!-- /page-calendar -->
+
+
+<!-- ════════════════════════════════════════════════════
+     PAGE: ANALYSIS
+════════════════════════════════════════════════════ -->
+<div id="page-analysis" class="page hidden">
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">曜日別分析</h2>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-card-title">曜日別 平均学習時間</div>
+          <div class="chart-wrap"><canvas id="dow-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-title">直近30日 日別学習時間</div>
+          <div class="chart-wrap"><canvas id="daily-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">学習履歴</h2>
+        <span class="history-count" id="history-count"></span>
+      </div>
+      <div id="history-list" class="history-list"></div>
+      <div id="history-more" class="history-more hidden">
+        <button class="load-more-btn" onclick="loadMoreHistory()">さらに読み込む</button>
+      </div>
+    </div>
+  </section>
+</div><!-- /page-analysis -->
+
+
+<!-- ════════════════════════════════════════════════════
+     PAGE: TODO
+════════════════════════════════════════════════════ -->
+<div id="page-todo" class="page hidden">
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">✅ ToDoリスト</h2>
+      </div>
+
+      <!-- Add form -->
+      <div class="todo-add-card">
+        <input id="todo-title-input" class="todo-input" type="text" placeholder="学習タスク名（例: 英語リスニング）"
+               onkeydown="if(event.key==='Enter')addTodo()" />
+        <div class="todo-add-row">
+          <div class="todo-hours-wrap">
+            <label class="todo-hours-label">目標時間</label>
+            <input id="todo-hours-input" class="todo-hours-input" type="number" value="1" min="0.5" step="0.5" />
+            <span class="todo-hours-unit">h</span>
           </div>
-        </div>
-        <div class="stat-card weekly-card">
-          <div class="stat-icon">📊</div>
-          <div class="stat-body">
-            <div class="stat-label">今週の合計</div>
-            <div class="stat-value" id="weekly-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
-          </div>
-        </div>
-        <div class="stat-card monthly-card">
-          <div class="stat-icon">🗓️</div>
-          <div class="stat-body">
-            <div class="stat-label">今月の合計</div>
-            <div class="stat-value" id="monthly-value">0<span class="stat-unit">h</span>0<span class="stat-unit">m</span></div>
-          </div>
-        </div>
-        <div class="stat-card streak-card">
-          <div class="stat-icon">🔥</div>
-          <div class="stat-body">
-            <div class="stat-label">直近30日 学習日数</div>
-            <div class="stat-value" id="streak-value">0<span class="stat-unit">日</span></div>
-          </div>
+          <button class="todo-add-btn" onclick="addTodo()">追加</button>
         </div>
       </div>
-    </div>
-  </div>
-</section>
 
-<!-- ── AdSense バナー① ─────────────────────────────────── -->
-<div id="ad-slot-1" class="ad-slot container"></div>
+      <!-- List -->
+      <div id="todo-list" class="todo-list"></div>
+    </div>
+  </section>
+</div><!-- /page-todo -->
 
-<!-- ── Calendar ───────────────────────────────────────── -->
-<section class="section">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">学習カレンダー</h2>
-      <div class="cal-nav">
-        <button class="cal-nav-btn" onclick="changeMonth(-1)">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 4L6 9l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <span id="cal-title" class="cal-title"></span>
-        <button class="cal-nav-btn" onclick="changeMonth(1)">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-    </div>
-    <div class="calendar-wrap">
-      <div class="cal-dow-labels">
-        <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
-      </div>
-      <div id="cal-grid" class="cal-grid"></div>
-      <div class="cal-color-legend">
-        <span class="legend-label">少</span>
-        <div class="legend-swatch s0"></div><div class="legend-swatch s1"></div>
-        <div class="legend-swatch s2"></div><div class="legend-swatch s3"></div>
-        <div class="legend-swatch s4"></div>
-        <span class="legend-label">多</span>
-      </div>
-    </div>
-    <div id="day-detail" class="day-detail hidden">
-      <div class="day-detail-header">
-        <span id="day-detail-title"></span>
-        <button class="close-btn" onclick="closeDayDetail()">×</button>
-      </div>
-      <div id="day-detail-body"></div>
-    </div>
-  </div>
-</section>
 
-<!-- ── おすすめ学習グッズ（アフィリエイト） ────────────── -->
-<section class="section affiliate-section">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">📚 おすすめ学習グッズ</h2>
-      <span class="affiliate-note">※ Amazonアソシエイト広告を含みます</span>
-    </div>
-    <div id="affiliate-grid" class="affiliate-grid">
-      <!-- JS で生成 -->
-    </div>
-  </div>
-</section>
-
-<!-- ── AdSense バナー② ─────────────────────────────────── -->
-<div id="ad-slot-2" class="ad-slot container"></div>
-
-<!-- ── Charts ─────────────────────────────────────────── -->
-<section class="section">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">曜日別分析</h2>
-    </div>
-    <div class="charts-grid">
-      <div class="chart-card">
-        <div class="chart-card-title">曜日別 平均学習時間</div>
-        <div class="chart-wrap"><canvas id="dow-chart"></canvas></div>
+<!-- ════════════════════════════════════════════════════
+     PAGE: REWARDS
+════════════════════════════════════════════════════ -->
+<div id="page-rewards" class="page hidden">
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">🏆 ご褒美・実績</h2>
       </div>
-      <div class="chart-card">
-        <div class="chart-card-title">直近30日 日別学習時間</div>
-        <div class="chart-wrap"><canvas id="daily-chart"></canvas></div>
+      <div class="rewards-total-card">
+        <div class="rewards-total-label">累計学習時間</div>
+        <div class="rewards-total-value" id="rewards-total-hours">—</div>
+        <div class="rewards-total-sub" id="rewards-next-hint"></div>
       </div>
+      <div id="rewards-grid" class="rewards-grid"></div>
     </div>
-  </div>
-</section>
+  </section>
+</div><!-- /page-rewards -->
 
-<!-- ── History ─────────────────────────────────────────── -->
-<section class="section">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">学習履歴</h2>
-      <span class="history-count" id="history-count"></span>
-    </div>
-    <div id="history-list" class="history-list"></div>
-    <div id="history-more" class="history-more hidden">
-      <button class="load-more-btn" onclick="loadMoreHistory()">さらに読み込む</button>
-    </div>
-  </div>
-</section>
-
-<!-- ── サポート（寄付） ───────────────────────────────── -->
-<section class="section support-section" id="support-section">
-  <div class="container">
-    <div class="support-card">
-      <div class="support-emoji">☕</div>
-      <h2 class="support-title">StudyFlow を応援する</h2>
-      <p class="support-desc">このアプリが役に立ったら、コーヒー1杯分のサポートをお願いします。<br>継続的な開発・改善の励みになります。</p>
-      <div class="support-buttons" id="support-buttons">
-        <!-- JS で生成 -->
-      </div>
-    </div>
-  </div>
-</section>
 
 <footer class="footer">
   <span>StudyFlow · あなたの学習記録 ·
-    <a href="#support-section" style="color:var(--primary2);text-decoration:none;">このアプリを応援する ☕</a>
+    <a href="#" onclick="showPage('home');return false;" style="color:var(--primary2);text-decoration:none;">このアプリを応援する ☕</a>
   </span>
 </footer>
 
