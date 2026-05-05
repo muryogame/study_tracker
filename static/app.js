@@ -239,10 +239,12 @@ function setMinDisplay(id, minutes) {
 
 /* ── Calendar ────────────────────────────────────────────── */
 async function loadCalendar() {
-  const rows = await authFetch(`/api/calendar/${calYear}/${calMonth}`).then(r => r.json());
-  calData = {};
-  for (const r of rows) calData[r.day] = r;
-  renderCalendar();
+  try {
+    const rows = await authFetch(`/api/calendar/${calYear}/${calMonth}`).then(r => r.json());
+    calData = {};
+    for (const r of rows) calData[r.day] = r;
+    renderCalendar();
+  } catch {}
 }
 
 function changeMonth(delta) {

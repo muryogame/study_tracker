@@ -307,17 +307,18 @@ def get_todos(uid: int = Depends(get_user_id)):
 def create_todo(body: TodoBody, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         now = datetime.now().isoformat()
+        params = {"u": uid, "t": body.title, "th": body.target_hours, "n": now}
         if IS_PG:
             row = conn.execute(text(
                 "INSERT INTO todos (user_id, title, target_hours, done_hours, completed, created_at) "
-                "VALUES (:u,:t,:th,0,false,:n) RETURNING id"
-            ), {"u": uid, "t": body.title, "th": body.target_hours, "n": now}).fetchone()
+                "VALUES (:u,:t,:th,0,0,:n) RETURNING id"
+            ), params).fetchone()
             tid = row[0]
         else:
             result = conn.execute(text(
                 "INSERT INTO todos (user_id, title, target_hours, done_hours, completed, created_at) "
                 "VALUES (:u,:t,:th,0,0,:n)"
-            ), {"u": uid, "t": body.title, "th": body.target_hours, "n": now})
+            ), params)
             tid = result.lastrowid
     return {"id": tid, "title": body.title, "target_hours": body.target_hours,
             "done_hours": 0, "completed": False}
