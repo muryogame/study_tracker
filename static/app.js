@@ -1,9 +1,18 @@
 'use strict';
 
-// ── Auth state ────────────────────────────────────────────────
-let token        = localStorage.getItem('sf_token') || null;
-let currentEmail = localStorage.getItem('sf_email') || '';
-let authMode     = 'login';
+// ── デバイスID（ログイン不要・初回アクセス時に自動生成） ─────
+// このIDをサーバーに送ることでデバイスごとに独立した記録を保持する
+const token = (() => {
+  let id = localStorage.getItem('sf_device_id');
+  if (!id) {
+    id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    localStorage.setItem('sf_device_id', id);
+  }
+  return id;
+})();
 
 // ── App state ─────────────────────────────────────────────────
 let activeSession  = null;
@@ -53,7 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
   calMonth  = now.getMonth() + 1;
   updateHeaderDate();
   setInterval(updateHeaderDate, 60_000);
-  initAuth();
   loadAll();
   loadMonetization();
 });
@@ -85,144 +93,9 @@ function showPage(name) {
   if (name === 'rewards')  loadRewards();
 }
 
-/* ══════════════════════════════════════════════════════════
-   AUTH
-══════════════════════════════════════════════════════════ */
-async function initAuth() {
-  if (!token) return;
-  try {
-    const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    showLoggedIn(data.email);
-  } catch {
-    token = null;
-    localStorage.removeItem('sf_token');
-    localStorage.removeItem('sf_email');
-  }
-}
-
-function showLoggedIn(email) {
-  currentEmail = email;
-  localStorage.setItem('sf_email', email);
-  document.getElementById('auth-form-section').classList.add('hidden');
-  document.getElementById('auth-user-section').classList.remove('hidden');
-  document.getElementById('auth-user-email').textContent = email;
-  loadAll();
-}
-
-function switchTab(mode) {
-  authMode = mode;
-  const isLogin = mode === 'login';
-  document.getElementById('tab-login').classList.toggle('active', isLogin);
-  document.getElementById('tab-register').classList.toggle('active', !isLogin);
-  document.getElementById('auth-submit-btn').textContent = isLogin ? 'ログイン' : '登録する';
-  document.getElementById('auth-error').classList.add('hidden');
-}
-
-// サーバー起動を最大maxMsミリ秒待機する（ボタンにカウントアップ表示）
-async function waitForServer(btn, maxMs = 90000, msg = 'サーバーを起動中です。しばらくお待ちください（最大90秒）。') {
-  if (_serverReady) return true;
-  const startWait = Date.now();
-  const ticker = setInterval(() => {
-    btn.textContent = `起動中... ${Math.round((Date.now() - startWait) / 1000)}秒`;
-  }, 1000);
-  btn.textContent = '起動中... 0秒';
-  showAuthError(msg);
-  const deadline = Date.now() + maxMs;
-  while (!_serverReady && Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 500));
-  }
-  clearInterval(ticker);
-  return _serverReady;
-}
-
-async function submitAuth() {
-  const email    = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
-  const btn      = document.getElementById('auth-submit-btn');
-  if (!email || !password) { showAuthError('メールアドレスとパスワードを入力してください'); return; }
-  if (authMode === 'register' && password.length < 8) { showAuthError('パスワードは8文字以上で設定してください'); return; }
-
-  btn.disabled = true;
-
-  // 最大3回試行（非JSON応答はサーバー再起動として扱い再待機→再試行する）
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // サーバーが起動していない場合は起動を待つ
-    if (!_serverReady) {
-      const msg = attempt === 0
-        ? 'サーバーを起動中です。しばらくお待ちください（最大90秒）。'
-        : 'サーバーが再起動中です。しばらくお待ちください...';
-      const ready = await waitForServer(btn, 90000, msg);
-      if (!ready) {
-        showAuthError('接続タイムアウト。ページを再読み込みしてください。');
-        break;
-      }
-      document.getElementById('auth-error').classList.add('hidden');
-    }
-
-    btn.textContent = attempt === 0 ? '接続中...' : '再接続中...';
-    try {
-      const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        cache: 'no-store',
-      });
-
-      // res.json()の代わりにテキストで取得してからパース（エラー内容を保持するため）
-      let bodyText = '';
-      try { bodyText = await res.text(); } catch {}
-
-      let data;
-      try { data = JSON.parse(bodyText); }
-      catch {
-        // サーバーがJSON以外（RenderのHTMLエラーページなど）を返した
-        console.warn(`Auth attempt ${attempt + 1}: non-JSON response (HTTP ${res.status})`, bodyText.slice(0, 300));
-        _serverReady = false;
-        preWarmServer(); // 再度サーバーを起こし直す
-        continue;        // 次のループで再待機→再試行
-      }
-
-      if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); break; }
-      token = data.token;
-      localStorage.setItem('sf_token', token);
-      btn.disabled = false;
-      btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
-      showLoggedIn(data.email);
-      return; // 成功
-    } catch {
-      showAuthError('ネットワークエラー。接続を確認してください。');
-      break;
-    }
-  }
-
-  btn.disabled = false;
-  btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
-}
-
-function showAuthError(msg) {
-  const el = document.getElementById('auth-error');
-  el.textContent = msg; el.classList.remove('hidden');
-}
-
-function logout() {
-  token = null; currentEmail = '';
-  localStorage.removeItem('sf_token'); localStorage.removeItem('sf_email');
-  activeSession = null; stopTimer();
-  document.getElementById('header-session-badge').classList.add('hidden');
-  document.getElementById('auth-user-section').classList.add('hidden');
-  document.getElementById('auth-form-section').classList.remove('hidden');
-  document.getElementById('auth-email').value = '';
-  document.getElementById('auth-password').value = '';
-  document.getElementById('auth-error').classList.add('hidden');
-  switchTab('login');
-  loadAll();
-}
-
-/* ── Fetch helper ─────────────────────────────────────────── */
+/* ── Fetch helper（デバイスIDをBearerトークンとして自動付与） ─ */
 async function authFetch(url, opts = {}) {
-  if (token) opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
+  opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
   return fetch(url, opts);
 }
 

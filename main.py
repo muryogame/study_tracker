@@ -5,11 +5,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pydantic import BaseModel
-from passlib.context import CryptContext
-from jose import jwt, JWTError
 from typing import Optional
+import hashlib
 import os
 import threading
 import time
@@ -20,18 +19,17 @@ app = FastAPI(title="学録")
 
 # ── Keep-alive（Renderのスリープ防止） ────────────────────────
 def _keepalive_worker():
-    """Renderの無料プランスリープを防ぐため、10分ごとに自身をping"""
     base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     if not base_url:
-        return  # ローカル環境では動かさない
+        return
     ping_url = f"{base_url}/api/ping"
-    time.sleep(30)  # 起動完了を待つ
+    time.sleep(30)
     while True:
         try:
             urllib.request.urlopen(ping_url, timeout=15)
         except Exception:
             pass
-        time.sleep(300)  # 5分ごと（Renderの15分スリープより安全な間隔）
+        time.sleep(300)
 
 @app.on_event("startup")
 async def start_keepalive():
@@ -39,18 +37,11 @@ async def start_keepalive():
 
 @app.get("/api/ping")
 def ping():
-    # DBまで確認することでサーバーが本当に稼働中かを保証
     with get_db() as conn:
         conn.execute(text("SELECT 1"))
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store, no-cache"})
+
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-
-SECRET_KEY = os.environ.get("SECRET_KEY", "studyflow-dev-secret-change-in-prod")
-ALGORITHM  = "HS256"
-TOKEN_DAYS = 30
-
-pwd_ctx  = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
 
 # ── Database ──────────────────────────────────────────────────
 _db_url = os.environ.get("DATABASE_URL", "")
@@ -114,14 +105,6 @@ else:
 def init_db():
     with get_db() as conn:
         conn.execute(text(f"""
-            CREATE TABLE IF NOT EXISTS users (
-                id            {SERIAL},
-                email         TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at    TEXT NOT NULL
-            )
-        """))
-        conn.execute(text(f"""
             CREATE TABLE IF NOT EXISTS sessions (
                 id               {SERIAL},
                 user_id          INTEGER,
@@ -141,101 +124,28 @@ def init_db():
                 created_at   TEXT NOT NULL
             )
         """))
-        # 既存テーブルに user_id カラムを追加（マイグレーション）
-        try:
-            if IS_PG:
-                conn.execute(text(
-                    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id INTEGER"
-                ))
-            else:
-                cols = [r[1] for r in conn.execute(
-                    text("PRAGMA table_info(sessions)")
-                ).fetchall()]
-                if "user_id" not in cols:
-                    conn.execute(text(
-                        "ALTER TABLE sessions ADD COLUMN user_id INTEGER"
-                    ))
-        except Exception:
-            pass
 
 init_db()
 
 
-# ── Auth ──────────────────────────────────────────────────────
-class AuthBody(BaseModel):
-    email: str
-    password: str
+# ── デバイストークン認証（ログイン不要） ──────────────────────
+# ブラウザが自動生成したUUIDをBearer tokenとして受け取り、
+# SHA-256ハッシュからuser_idを導出する。デバイスごとに独立した記録を保持。
 
+_bearer = HTTPBearer(auto_error=False)
 
-def _make_token(user_id: int) -> str:
-    expire = datetime.now() + timedelta(days=TOKEN_DAYS)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
-
-
-_optional_bearer = HTTPBearer(auto_error=False)
-
-def get_optional_user_id(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(_optional_bearer),
+def get_user_id(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> int:
-    """ログイン済み → ユーザーID、未ログイン → 0（匿名）"""
-    if not creds:
+    if not creds or len(creds.credentials) < 16:
         return 0
-    try:
-        payload = jwt.decode(creds.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        return int(payload["sub"])
-    except Exception:
-        return 0
-
-
-@app.post("/api/register")
-def register(body: AuthBody):
-    with get_db() as conn:
-        if conn.execute(
-            text("SELECT id FROM users WHERE email=:e"), {"e": body.email}
-        ).fetchone():
-            raise HTTPException(400, "このメールアドレスは既に登録されています")
-        now = datetime.now().isoformat()
-        h   = pwd_ctx.hash(body.password)
-        if IS_PG:
-            row = conn.execute(
-                text("INSERT INTO users (email, password_hash, created_at) VALUES (:e,:h,:t) RETURNING id"),
-                {"e": body.email, "h": h, "t": now},
-            ).fetchone()
-            uid = row[0]
-        else:
-            result = conn.execute(
-                text("INSERT INTO users (email, password_hash, created_at) VALUES (:e,:h,:t)"),
-                {"e": body.email, "h": h, "t": now},
-            )
-            uid = result.lastrowid
-    return {"token": _make_token(uid), "email": body.email}
-
-
-@app.post("/api/login")
-def login(body: AuthBody):
-    with get_db() as conn:
-        row = conn.execute(
-            text("SELECT id, password_hash FROM users WHERE email=:e"), {"e": body.email}
-        ).mappings().fetchone()
-    if not row or not pwd_ctx.verify(body.password, row["password_hash"]):
-        raise HTTPException(401, "メールアドレスまたはパスワードが違います")
-    return {"token": _make_token(row["id"]), "email": body.email}
-
-
-@app.get("/api/me")
-def me(uid: int = Depends(get_optional_user_id)):
-    with get_db() as conn:
-        row = conn.execute(
-            text("SELECT email FROM users WHERE id=:id"), {"id": uid}
-        ).mappings().fetchone()
-    if not row:
-        raise HTTPException(404, "ユーザーが見つかりません")
-    return {"email": row["email"]}
+    h = hashlib.sha256(creds.credentials.encode()).digest()
+    return (int.from_bytes(h[:8], "big") % (2**31 - 1)) + 1
 
 
 # ── API ───────────────────────────────────────────────────────
 @app.get("/api/active")
-def get_active(uid: int = Depends(get_optional_user_id)):
+def get_active(uid: int = Depends(get_user_id)):
     with get_db() as conn:
         row = conn.execute(text(
             "SELECT * FROM sessions WHERE end_time IS NULL AND user_id=:u ORDER BY start_time DESC LIMIT 1"
@@ -244,7 +154,7 @@ def get_active(uid: int = Depends(get_optional_user_id)):
 
 
 @app.post("/api/start")
-def start_session(uid: int = Depends(get_optional_user_id)):
+def start_session(uid: int = Depends(get_user_id)):
     with get_db() as conn:
         if conn.execute(text(
             "SELECT id FROM sessions WHERE end_time IS NULL AND user_id=:u"
@@ -267,7 +177,7 @@ def start_session(uid: int = Depends(get_optional_user_id)):
 
 
 @app.post("/api/stop")
-def stop_session(uid: int = Depends(get_optional_user_id)):
+def stop_session(uid: int = Depends(get_user_id)):
     with get_db() as conn:
         active = conn.execute(text(
             "SELECT * FROM sessions WHERE end_time IS NULL AND user_id=:u ORDER BY start_time DESC LIMIT 1"
@@ -283,7 +193,7 @@ def stop_session(uid: int = Depends(get_optional_user_id)):
 
 
 @app.get("/api/calendar/{year}/{month}")
-def get_calendar(year: int, month: int, uid: int = Depends(get_optional_user_id)):
+def get_calendar(year: int, month: int, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(f"""
             SELECT {_date('start_time')} AS day,
@@ -300,7 +210,7 @@ def get_calendar(year: int, month: int, uid: int = Depends(get_optional_user_id)
 
 
 @app.get("/api/stats")
-def get_stats(uid: int = Depends(get_optional_user_id)):
+def get_stats(uid: int = Depends(get_user_id)):
     with get_db() as conn:
         monthly = conn.execute(text(f"""
             SELECT COALESCE(SUM(duration_minutes), 0) AS t FROM sessions
@@ -342,7 +252,7 @@ def get_stats(uid: int = Depends(get_optional_user_id)):
 
 
 @app.get("/api/history")
-def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_optional_user_id)):
+def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(
             "SELECT id, start_time, end_time, duration_minutes FROM sessions "
@@ -355,7 +265,7 @@ def get_history(limit: int = 20, offset: int = 0, uid: int = Depends(get_optiona
 
 
 @app.delete("/api/sessions/{session_id}")
-def delete_session(session_id: int, uid: int = Depends(get_optional_user_id)):
+def delete_session(session_id: int, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         conn.execute(text(
             "DELETE FROM sessions WHERE id=:id AND user_id=:u"
@@ -364,7 +274,7 @@ def delete_session(session_id: int, uid: int = Depends(get_optional_user_id)):
 
 
 @app.get("/api/total-hours")
-def get_total_hours(uid: int = Depends(get_optional_user_id)):
+def get_total_hours(uid: int = Depends(get_user_id)):
     with get_db() as conn:
         result = conn.execute(text(
             "SELECT COALESCE(SUM(duration_minutes), 0) / 60.0 AS h FROM sessions "
@@ -384,7 +294,7 @@ class TodoUpdateBody(BaseModel):
 
 
 @app.get("/api/todos")
-def get_todos(uid: int = Depends(get_optional_user_id)):
+def get_todos(uid: int = Depends(get_user_id)):
     with get_db() as conn:
         rows = conn.execute(text(
             "SELECT id, title, target_hours, done_hours, completed, created_at FROM todos "
@@ -394,7 +304,7 @@ def get_todos(uid: int = Depends(get_optional_user_id)):
 
 
 @app.post("/api/todos")
-def create_todo(body: TodoBody, uid: int = Depends(get_optional_user_id)):
+def create_todo(body: TodoBody, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         now = datetime.now().isoformat()
         if IS_PG:
@@ -414,7 +324,7 @@ def create_todo(body: TodoBody, uid: int = Depends(get_optional_user_id)):
 
 
 @app.put("/api/todos/{todo_id}")
-def update_todo(todo_id: int, body: TodoUpdateBody, uid: int = Depends(get_optional_user_id)):
+def update_todo(todo_id: int, body: TodoUpdateBody, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         if body.done_hours is not None:
             conn.execute(text(
@@ -428,7 +338,7 @@ def update_todo(todo_id: int, body: TodoUpdateBody, uid: int = Depends(get_optio
 
 
 @app.delete("/api/todos/{todo_id}")
-def delete_todo(todo_id: int, uid: int = Depends(get_optional_user_id)):
+def delete_todo(todo_id: int, uid: int = Depends(get_user_id)):
     with get_db() as conn:
         conn.execute(text(
             "DELETE FROM todos WHERE id=:id AND user_id=:u"
