@@ -54,7 +54,7 @@ if _db_url and "sslmode" not in _db_url:
 IS_PG = bool(_db_url)
 
 if IS_PG:
-    engine = create_engine(_db_url)
+    engine = create_engine(_db_url, pool_pre_ping=True)
 else:
     _sqlite_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "study.db")
     engine = create_engine(

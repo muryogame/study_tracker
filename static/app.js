@@ -105,13 +105,15 @@ async function authFetch(url, opts = {}) {
   return fetch(url, opts);
 }
 
-// ミューテーション操作専用: サーバー準備まで待機する
+// ミューテーション操作専用: サーバー準備まで最大120秒待機。準備できたらtrue、タイムアウトはfalse
 async function waitServerReady() {
-  if (_serverReady) return;
+  if (_serverReady) return true;
   preWarmServer();
-  while (!_serverReady) {
+  const deadline = Date.now() + 120000;
+  while (!_serverReady && Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 500));
   }
+  return _serverReady;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -121,7 +123,11 @@ function loadAll() {
   checkActive();
   loadStats();
   loadHomeTodos();
-  chartsRendered = false; // ページ切替でリセット
+  chartsRendered = false;
+  // 現在表示中のページのデータも再取得
+  if (currentPage === 'todo')     loadTodos();
+  if (currentPage === 'calendar') loadCalendar();
+  if (currentPage === 'rewards')  loadRewards();
 }
 
 /* ── Session ─────────────────────────────────────────────── */
@@ -474,23 +480,36 @@ function renderHomeTodos(todos) {
 }
 
 async function addTodo() {
-  const titleEl = document.getElementById('todo-title-input');
-  const hoursEl = document.getElementById('todo-hours-input');
-  const addBtn  = document.querySelector('.todo-add-btn');
-  const title   = titleEl.value.trim();
-  const hours   = parseFloat(hoursEl.value) || 1;
+  const titleEl  = document.getElementById('todo-title-input');
+  const hoursEl  = document.getElementById('todo-hours-input');
+  const addBtn   = document.querySelector('.todo-add-btn');
+  const errorEl  = document.getElementById('todo-add-error');
+  const title    = titleEl.value.trim();
+  const hours    = parseFloat(hoursEl.value) || 1;
   if (!title) { titleEl.focus(); return; }
+  if (errorEl) errorEl.textContent = '';
   if (addBtn) { addBtn.disabled = true; if (!_serverReady) addBtn.textContent = '起動中...'; }
   try {
-    if (!_serverReady) await waitServerReady();
+    if (!_serverReady) {
+      const ready = await waitServerReady();
+      if (!ready) {
+        if (errorEl) errorEl.textContent = 'サーバーが起動できませんでした。ページを再読み込みしてください。';
+        return;
+      }
+    }
     const res = await authFetch('/api/todos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, target_hours: hours }),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      if (errorEl) errorEl.textContent = `追加に失敗しました (${res.status})。再度お試しください。`;
+      return;
+    }
     titleEl.value = ''; hoursEl.value = '1';
     await loadTodos();
     loadHomeTodos();
+  } catch (e) {
+    if (errorEl) errorEl.textContent = 'ネットワークエラーが発生しました。再度お試しください。';
   } finally {
     if (addBtn) { addBtn.disabled = false; addBtn.textContent = '追加'; }
   }
