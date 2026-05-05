@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -360,9 +360,35 @@ def site_config():
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+def _site_url() -> str:
+    return os.environ.get("RENDER_EXTERNAL_URL", os.environ.get("SITE_URL", "")).rstrip("/")
+
 @app.get("/")
 def root():
-    return FileResponse(
-        os.path.join(STATIC_DIR, "index.html"),
+    with open(os.path.join(STATIC_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    html = html.replace("__SITE_URL__", _site_url())
+    return HTMLResponse(
+        content=html,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
     )
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots():
+    site = _site_url()
+    return f"User-agent: *\nAllow: /\nSitemap: {site}/sitemap.xml\n"
+
+@app.get("/sitemap.xml")
+def sitemap():
+    site = _site_url()
+    today = datetime.now().strftime("%Y-%m-%d")
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{site}/</loc>
+    <lastmod>{today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>"""
+    return Response(content=xml, media_type="application/xml")
