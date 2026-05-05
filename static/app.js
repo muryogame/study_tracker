@@ -29,25 +29,31 @@ let chartsRendered = false;
 let _serverReady   = false;
 let _isWarming     = false;
 
-// ページ読み込み直後からサーバーを起こし始める（Renderスリープ対策）
-// 再呼び出し可能な名前付き関数にしてエラー時に再利用できるようにする
 async function preWarmServer() {
-  if (_isWarming) return;        // すでに起動中なら二重起動しない
+  if (_isWarming) return;
   _isWarming = true;
   _serverReady = false;
+
+  // サーバー起動中をUIに表示（セッション中でなければ）
+  const statusEl = document.getElementById('touch-status');
+  if (statusEl && !activeSession) statusEl.textContent = 'サーバー起動中…';
+
   while (!_serverReady) {
     try {
       const ac = new AbortController();
       const tid = setTimeout(() => ac.abort(), 8000);
-      // キャッシュ回避のためタイムスタンプを付与
       const res = await fetch(`/api/ping?t=${Date.now()}`, {
-        signal: ac.signal,
-        cache: 'no-store',
+        signal: ac.signal, cache: 'no-store',
       });
       clearTimeout(tid);
       if (res.ok) {
         const d = await res.json();
-        if (d.ok) { _serverReady = true; _isWarming = false; return; }
+        if (d.ok) {
+          _serverReady = true;
+          _isWarming = false;
+          loadAll(); // サーバー準備完了→データ再取得
+          return;
+        }
       }
     } catch {}
     if (!_serverReady) await new Promise(r => setTimeout(r, 3000));
@@ -94,16 +100,18 @@ function showPage(name) {
 }
 
 /* ── Fetch helper（デバイスIDをBearerトークンとして自動付与） ─ */
-// サーバーが起動中なら準備完了まで最大90秒待ってからリクエストを送る
 async function authFetch(url, opts = {}) {
-  if (!_serverReady) {
-    const deadline = Date.now() + 90000;
-    while (!_serverReady && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 500));
-    }
-  }
   opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
   return fetch(url, opts);
+}
+
+// ミューテーション操作専用: サーバー準備まで待機する
+async function waitServerReady() {
+  if (_serverReady) return;
+  preWarmServer();
+  while (!_serverReady) {
+    await new Promise(r => setTimeout(r, 500));
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -118,10 +126,13 @@ function loadAll() {
 
 /* ── Session ─────────────────────────────────────────────── */
 async function checkActive() {
-  const res  = await authFetch('/api/active');
-  const data = await res.json();
-  if (data.active) { activeSession = data.session; setActiveUI(true); startTimer(); }
-  else             { activeSession = null; setActiveUI(false); }
+  try {
+    const res = await authFetch('/api/active');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.active) { activeSession = data.session; setActiveUI(true); startTimer(); }
+    else             { activeSession = null; setActiveUI(false); }
+  } catch {}
 }
 
 async function toggleSession() {
@@ -130,17 +141,35 @@ async function toggleSession() {
 }
 
 async function startSession() {
-  const res = await authFetch('/api/start', { method: 'POST' });
-  if (!res.ok) return;
-  const data = await res.json();
-  activeSession = { id: data.session_id, start_time: data.start_time };
-  setActiveUI(true); startTimer(); loadStats();
+  const btn    = document.getElementById('touch-btn');
+  const status = document.getElementById('touch-status');
+  btn.disabled = true;
+  try {
+    if (!_serverReady) {
+      status.textContent = 'サーバー起動中…';
+      await waitServerReady();
+    }
+    const res = await authFetch('/api/start', { method: 'POST' });
+    if (!res.ok) { status.textContent = 'エラーが発生しました。再度タッチしてください。'; return; }
+    const data = await res.json();
+    activeSession = { id: data.session_id, start_time: data.start_time };
+    setActiveUI(true); startTimer(); loadStats();
+  } catch {
+    status.textContent = 'エラーが発生しました。再度タッチしてください。';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function stopSession() {
-  const res = await authFetch('/api/stop', { method: 'POST' });
-  if (!res.ok) return;
-  activeSession = null; setActiveUI(false); stopTimer(); loadAll();
+  const btn = document.getElementById('touch-btn');
+  btn.disabled = true;
+  try {
+    const res = await authFetch('/api/stop', { method: 'POST' });
+    if (!res.ok) return;
+    activeSession = null; setActiveUI(false); stopTimer(); loadAll();
+  } catch {}
+  finally { btn.disabled = false; }
 }
 
 function setActiveUI(active) {
@@ -183,13 +212,17 @@ function pad(n) { return String(n).padStart(2, '0'); }
 
 /* ── Stats ───────────────────────────────────────────────── */
 async function loadStats() {
-  const data = await authFetch('/api/stats').then(r => r.json());
-  setMinDisplay('today-value',   data.today_minutes);
-  setMinDisplay('weekly-value',  data.weekly_minutes);
-  setMinDisplay('monthly-value', data.monthly_minutes);
-  document.getElementById('streak-value').innerHTML =
-    `${data.active_days_30}<span class="stat-unit">日</span>`;
-  if (currentPage === 'analysis') renderDowChart(data.by_day_of_week);
+  try {
+    const res = await authFetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    setMinDisplay('today-value',   data.today_minutes);
+    setMinDisplay('weekly-value',  data.weekly_minutes);
+    setMinDisplay('monthly-value', data.monthly_minutes);
+    document.getElementById('streak-value').innerHTML =
+      `${data.active_days_30}<span class="stat-unit">日</span>`;
+    if (currentPage === 'analysis') renderDowChart(data.by_day_of_week);
+  } catch {}
 }
 
 function setMinDisplay(id, minutes) {
@@ -447,18 +480,19 @@ async function addTodo() {
   const title   = titleEl.value.trim();
   const hours   = parseFloat(hoursEl.value) || 1;
   if (!title) { titleEl.focus(); return; }
-  if (addBtn) addBtn.disabled = true;
+  if (addBtn) { addBtn.disabled = true; if (!_serverReady) addBtn.textContent = '起動中...'; }
   try {
+    if (!_serverReady) await waitServerReady();
     const res = await authFetch('/api/todos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, target_hours: hours }),
     });
-    if (!res.ok) return; // サーバーエラー時は入力を保持
+    if (!res.ok) return;
     titleEl.value = ''; hoursEl.value = '1';
     await loadTodos();
     loadHomeTodos();
   } finally {
-    if (addBtn) addBtn.disabled = false;
+    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '追加'; }
   }
 }
 
