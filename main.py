@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -39,7 +39,10 @@ async def start_keepalive():
 
 @app.get("/api/ping")
 def ping():
-    return {"ok": True}
+    # DBまで確認することでサーバーが本当に稼働中かを保証
+    with get_db() as conn:
+        conn.execute(text("SELECT 1"))
+    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store, no-cache"})
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "studyflow-dev-secret-change-in-prod")

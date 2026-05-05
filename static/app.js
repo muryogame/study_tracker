@@ -18,20 +18,34 @@ let dailyChart     = null;
 let currentPage    = 'home';
 let chartsRendered = false;
 let _serverReady   = false;
+let _isWarming     = false;
 
 // ページ読み込み直後からサーバーを起こし始める（Renderスリープ対策）
-(async function preWarmServer() {
+// 再呼び出し可能な名前付き関数にしてエラー時に再利用できるようにする
+async function preWarmServer() {
+  if (_isWarming) return;        // すでに起動中なら二重起動しない
+  _isWarming = true;
+  _serverReady = false;
   while (!_serverReady) {
     try {
       const ac = new AbortController();
-      const tid = setTimeout(() => ac.abort(), 5000);
-      const res = await fetch('/api/ping', { signal: ac.signal });
+      const tid = setTimeout(() => ac.abort(), 8000);
+      // キャッシュ回避のためタイムスタンプを付与
+      const res = await fetch(`/api/ping?t=${Date.now()}`, {
+        signal: ac.signal,
+        cache: 'no-store',
+      });
       clearTimeout(tid);
-      if (res.ok) { const d = await res.json(); if (d.ok) { _serverReady = true; return; } }
+      if (res.ok) {
+        const d = await res.json();
+        if (d.ok) { _serverReady = true; _isWarming = false; return; }
+      }
     } catch {}
     if (!_serverReady) await new Promise(r => setTimeout(r, 3000));
   }
-})();
+  _isWarming = false;
+}
+preWarmServer();
 
 document.addEventListener('DOMContentLoaded', () => {
   const now = new Date();
@@ -106,6 +120,23 @@ function switchTab(mode) {
   document.getElementById('auth-error').classList.add('hidden');
 }
 
+// サーバー起動を最大maxMsミリ秒待機する（ボタンにカウントアップ表示）
+async function waitForServer(btn, maxMs = 90000, msg = 'サーバーを起動中です。しばらくお待ちください（最大90秒）。') {
+  if (_serverReady) return true;
+  const startWait = Date.now();
+  const ticker = setInterval(() => {
+    btn.textContent = `起動中... ${Math.round((Date.now() - startWait) / 1000)}秒`;
+  }, 1000);
+  btn.textContent = '起動中... 0秒';
+  showAuthError(msg);
+  const deadline = Date.now() + maxMs;
+  while (!_serverReady && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+  clearInterval(ticker);
+  return _serverReady;
+}
+
 async function submitAuth() {
   const email    = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
@@ -115,50 +146,59 @@ async function submitAuth() {
 
   btn.disabled = true;
 
-  // サーバーが起動していない場合、完全起動まで待機する
-  if (!_serverReady) {
-    const startWait = Date.now();
-    const ticker = setInterval(() => {
-      btn.textContent = `起動中... ${Math.round((Date.now() - startWait) / 1000)}秒`;
-    }, 1000);
-    btn.textContent = '起動中... 0秒';
-    showAuthError('サーバーを起動中です。しばらくお待ちください（最大90秒）。');
-
-    const deadline = Date.now() + 90000;
-    while (!_serverReady && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 500));
-    }
-    clearInterval(ticker);
-
+  // 最大3回試行（非JSON応答はサーバー再起動として扱い再待機→再試行する）
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // サーバーが起動していない場合は起動を待つ
     if (!_serverReady) {
-      showAuthError('接続タイムアウト。ページを再読み込みしてください。');
+      const msg = attempt === 0
+        ? 'サーバーを起動中です。しばらくお待ちください（最大90秒）。'
+        : 'サーバーが再起動中です。しばらくお待ちください...';
+      const ready = await waitForServer(btn, 90000, msg);
+      if (!ready) {
+        showAuthError('接続タイムアウト。ページを再読み込みしてください。');
+        break;
+      }
+      document.getElementById('auth-error').classList.add('hidden');
+    }
+
+    btn.textContent = attempt === 0 ? '接続中...' : '再接続中...';
+    try {
+      const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        cache: 'no-store',
+      });
+
+      // res.json()の代わりにテキストで取得してからパース（エラー内容を保持するため）
+      let bodyText = '';
+      try { bodyText = await res.text(); } catch {}
+
+      let data;
+      try { data = JSON.parse(bodyText); }
+      catch {
+        // サーバーがJSON以外（RenderのHTMLエラーページなど）を返した
+        console.warn(`Auth attempt ${attempt + 1}: non-JSON response (HTTP ${res.status})`, bodyText.slice(0, 300));
+        _serverReady = false;
+        preWarmServer(); // 再度サーバーを起こし直す
+        continue;        // 次のループで再待機→再試行
+      }
+
+      if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); break; }
+      token = data.token;
+      localStorage.setItem('sf_token', token);
       btn.disabled = false;
       btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
-      return;
+      showLoggedIn(data.email);
+      return; // 成功
+    } catch {
+      showAuthError('ネットワークエラー。接続を確認してください。');
+      break;
     }
-    document.getElementById('auth-error').classList.add('hidden');
   }
 
-  btn.textContent = '接続中...';
-  try {
-    const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    let data;
-    try { data = await res.json(); }
-    catch { showAuthError('予期しないエラーが発生しました。再度お試しください。'); return; }
-    if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); return; }
-    token = data.token;
-    localStorage.setItem('sf_token', token);
-    showLoggedIn(data.email);
-  } catch {
-    showAuthError('サーバーへの接続に失敗しました。ネットワークを確認してください。');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
-  }
+  btn.disabled = false;
+  btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
 }
 
 function showAuthError(msg) {
