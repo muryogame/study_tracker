@@ -15,7 +15,7 @@ import threading
 import time
 import urllib.request
 
-app = FastAPI(title="StudyFlow")
+app = FastAPI(title="学録")
 
 
 # ── Keep-alive（Renderのスリープ防止） ────────────────────────

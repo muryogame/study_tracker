@@ -97,37 +97,60 @@ async function submitAuth() {
   const btn      = document.getElementById('auth-submit-btn');
   if (!email || !password) { showAuthError('メールアドレスとパスワードを入力してください'); return; }
   if (authMode === 'register' && password.length < 8) { showAuthError('パスワードは8文字以上で設定してください'); return; }
-  btn.disabled = true; btn.textContent = '接続中...';
-  try {
+
+  btn.disabled = true;
+  const url        = authMode === 'login' ? '/api/login' : '/api/register';
+  const MAX_RETRY  = 5;
+
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    btn.textContent = attempt === 1 ? '接続中...' : `再接続中... (${attempt}/${MAX_RETRY})`;
+
     const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), 30000);
+    const timeoutId  = setTimeout(() => controller.abort(), 60000);
     let res;
     try {
-      res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
+      res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
         signal: controller.signal,
       });
     } catch (e) {
-      const msg = e.name === 'AbortError'
-        ? 'サーバーの応答がタイムアウトしました。'
-        : 'サーバーに接続できません。';
-      showAuthError(msg + 'しばらく待ってから再度お試しください。');
-      return;
-    } finally { clearTimeout(timeout); }
+      clearTimeout(timeoutId);
+      if (attempt < MAX_RETRY) {
+        showAuthError(`接続に失敗しました。自動再試行中... (${attempt}/${MAX_RETRY})`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+      showAuthError(e.name === 'AbortError'
+        ? 'タイムアウトしました。しばらく待ってから再度お試しください。'
+        : 'サーバーに接続できません。しばらく待ってから再度お試しください。');
+      break;
+    }
+    clearTimeout(timeoutId);
 
     let data;
     try { data = await res.json(); }
-    catch { showAuthError('サーバーが起動中です（最大50秒）。しばらく待ってから再度お試しください。'); return; }
+    catch {
+      if (attempt < MAX_RETRY) {
+        showAuthError(`サーバーが起動中です... 自動再試行 (${attempt}/${MAX_RETRY})`);
+        await new Promise(r => setTimeout(r, 10000));
+        continue;
+      }
+      showAuthError('サーバーの起動に時間がかかっています。しばらく待ってから再度お試しください。');
+      break;
+    }
 
-    if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); return; }
+    if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); break; }
     token = data.token;
     localStorage.setItem('sf_token', token);
-    showLoggedIn(data.email);
-  } finally {
     btn.disabled = false;
     btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
+    showLoggedIn(data.email);
+    return;
   }
+
+  btn.disabled = false;
+  btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
 }
 
 function showAuthError(msg) {
@@ -651,7 +674,7 @@ function injectBMCWidget(username) {
   if (!username) return;
   const s = document.createElement('script');
   s.setAttribute('data-name','BMC-Widget'); s.setAttribute('data-cfasync','false');
-  s.setAttribute('data-id',username); s.setAttribute('data-description','StudyFlowを応援する');
+  s.setAttribute('data-id',username); s.setAttribute('data-description','学録を応援する');
   s.setAttribute('data-message','学習の継続をサポートします！'); s.setAttribute('data-color','#6366F1');
   s.setAttribute('data-position','Right'); s.setAttribute('data-x_margin','18'); s.setAttribute('data-y_margin','18');
   s.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
