@@ -23,13 +23,13 @@ def _keepalive_worker():
     if not base_url:
         return
     ping_url = f"{base_url}/api/ping"
-    time.sleep(30)
+    time.sleep(5)  # 起動直後の短い待機のみ
     while True:
         try:
-            urllib.request.urlopen(ping_url, timeout=15)
+            urllib.request.urlopen(ping_url, timeout=20)
         except Exception:
             pass
-        time.sleep(300)
+        time.sleep(240)  # 4分ごと（Renderの15分スリープより十分短い）
 
 @app.on_event("startup")
 async def start_keepalive():
