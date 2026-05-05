@@ -94,7 +94,14 @@ function showPage(name) {
 }
 
 /* ── Fetch helper（デバイスIDをBearerトークンとして自動付与） ─ */
+// サーバーが起動中なら準備完了まで最大90秒待ってからリクエストを送る
 async function authFetch(url, opts = {}) {
+  if (!_serverReady) {
+    const deadline = Date.now() + 90000;
+    while (!_serverReady && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
   opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
   return fetch(url, opts);
 }
@@ -370,13 +377,17 @@ async function deleteSession(id, btn) {
    TODO
 ══════════════════════════════════════════════════════════ */
 async function loadTodos() {
-  const todos = await authFetch('/api/todos').then(r => r.json());
-  renderTodoList(todos);
+  try {
+    const todos = await authFetch('/api/todos').then(r => r.json());
+    renderTodoList(todos);
+  } catch {}
 }
 
 async function loadHomeTodos() {
-  const todos = await authFetch('/api/todos').then(r => r.json());
-  renderHomeTodos(todos);
+  try {
+    const todos = await authFetch('/api/todos').then(r => r.json());
+    renderHomeTodos(todos);
+  } catch {}
 }
 
 function renderTodoList(todos) {
@@ -432,15 +443,23 @@ function renderHomeTodos(todos) {
 async function addTodo() {
   const titleEl = document.getElementById('todo-title-input');
   const hoursEl = document.getElementById('todo-hours-input');
+  const addBtn  = document.querySelector('.todo-add-btn');
   const title   = titleEl.value.trim();
   const hours   = parseFloat(hoursEl.value) || 1;
   if (!title) { titleEl.focus(); return; }
-  await authFetch('/api/todos', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, target_hours: hours }),
-  });
-  titleEl.value = ''; hoursEl.value = '1';
-  loadTodos(); loadHomeTodos();
+  if (addBtn) addBtn.disabled = true;
+  try {
+    const res = await authFetch('/api/todos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, target_hours: hours }),
+    });
+    if (!res.ok) return; // サーバーエラー時は入力を保持
+    titleEl.value = ''; hoursEl.value = '1';
+    await loadTodos();
+    loadHomeTodos();
+  } finally {
+    if (addBtn) addBtn.disabled = false;
+  }
 }
 
 async function toggleTodoComplete(id, completed) {
