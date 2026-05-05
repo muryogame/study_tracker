@@ -17,6 +17,21 @@ let dowChart       = null;
 let dailyChart     = null;
 let currentPage    = 'home';
 let chartsRendered = false;
+let _serverReady   = false;
+
+// ページ読み込み直後からサーバーを起こし始める（Renderスリープ対策）
+(async function preWarmServer() {
+  while (!_serverReady) {
+    try {
+      const ac = new AbortController();
+      const tid = setTimeout(() => ac.abort(), 5000);
+      const res = await fetch('/api/ping', { signal: ac.signal });
+      clearTimeout(tid);
+      if (res.ok) { const d = await res.json(); if (d.ok) { _serverReady = true; return; } }
+    } catch {}
+    if (!_serverReady) await new Promise(r => setTimeout(r, 3000));
+  }
+})();
 
 document.addEventListener('DOMContentLoaded', () => {
   const now = new Date();
@@ -99,58 +114,51 @@ async function submitAuth() {
   if (authMode === 'register' && password.length < 8) { showAuthError('パスワードは8文字以上で設定してください'); return; }
 
   btn.disabled = true;
-  const url        = authMode === 'login' ? '/api/login' : '/api/register';
-  const MAX_RETRY  = 5;
 
-  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
-    btn.textContent = attempt === 1 ? '接続中...' : `再接続中... (${attempt}/${MAX_RETRY})`;
+  // サーバーが起動していない場合、完全起動まで待機する
+  if (!_serverReady) {
+    const startWait = Date.now();
+    const ticker = setInterval(() => {
+      btn.textContent = `起動中... ${Math.round((Date.now() - startWait) / 1000)}秒`;
+    }, 1000);
+    btn.textContent = '起動中... 0秒';
+    showAuthError('サーバーを起動中です。しばらくお待ちください（最大90秒）。');
 
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 60000);
-    let res;
-    try {
-      res = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        signal: controller.signal,
-      });
-    } catch (e) {
-      clearTimeout(timeoutId);
-      if (attempt < MAX_RETRY) {
-        showAuthError(`接続に失敗しました。自動再試行中... (${attempt}/${MAX_RETRY})`);
-        await new Promise(r => setTimeout(r, 5000));
-        continue;
-      }
-      showAuthError(e.name === 'AbortError'
-        ? 'タイムアウトしました。しばらく待ってから再度お試しください。'
-        : 'サーバーに接続できません。しばらく待ってから再度お試しください。');
-      break;
+    const deadline = Date.now() + 90000;
+    while (!_serverReady && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 500));
     }
-    clearTimeout(timeoutId);
+    clearInterval(ticker);
 
-    let data;
-    try { data = await res.json(); }
-    catch {
-      if (attempt < MAX_RETRY) {
-        showAuthError(`サーバーが起動中です... 自動再試行 (${attempt}/${MAX_RETRY})`);
-        await new Promise(r => setTimeout(r, 10000));
-        continue;
-      }
-      showAuthError('サーバーの起動に時間がかかっています。しばらく待ってから再度お試しください。');
-      break;
+    if (!_serverReady) {
+      showAuthError('接続タイムアウト。ページを再読み込みしてください。');
+      btn.disabled = false;
+      btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
+      return;
     }
-
-    if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); break; }
-    token = data.token;
-    localStorage.setItem('sf_token', token);
-    btn.disabled = false;
-    btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
-    showLoggedIn(data.email);
-    return;
+    document.getElementById('auth-error').classList.add('hidden');
   }
 
-  btn.disabled = false;
-  btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
+  btn.textContent = '接続中...';
+  try {
+    const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    let data;
+    try { data = await res.json(); }
+    catch { showAuthError('予期しないエラーが発生しました。再度お試しください。'); return; }
+    if (!res.ok) { showAuthError(data.detail || 'エラーが発生しました'); return; }
+    token = data.token;
+    localStorage.setItem('sf_token', token);
+    showLoggedIn(data.email);
+  } catch {
+    showAuthError('サーバーへの接続に失敗しました。ネットワークを確認してください。');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = authMode === 'login' ? 'ログイン' : '登録する';
+  }
 }
 
 function showAuthError(msg) {
