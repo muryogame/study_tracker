@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
@@ -78,23 +78,26 @@ def get_db():
 
 
 # ── SQL 方言ヘルパー ──────────────────────────────────────────
+# start_time/end_time はUTC+"Z"形式で保存。各DBで日本時間(JST)に変換して集計する
 if IS_PG:
-    def _ym(col):   return f"to_char({col}::timestamp, 'YYYY-MM')"
-    def _date(col): return f"({col}::timestamp AT TIME ZONE 'Asia/Tokyo')::date"
-    def _dow(col):  return f"EXTRACT(DOW FROM {col}::timestamp)::integer"
-    def _yr(col):   return f"to_char({col}::timestamp, 'YYYY')"
-    def _mo(col):   return f"to_char({col}::timestamp, 'MM')"
+    # ::timestamptz でタイムゾーン付き解釈 → AT TIME ZONE 'Asia/Tokyo' でJSTに変換
+    def _ym(col):   return f"to_char({col}::timestamptz AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM')"
+    def _date(col): return f"({col}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date"
+    def _dow(col):  return f"EXTRACT(DOW FROM ({col}::timestamptz AT TIME ZONE 'Asia/Tokyo'))::integer"
+    def _yr(col):   return f"to_char({col}::timestamptz AT TIME ZONE 'Asia/Tokyo', 'YYYY')"
+    def _mo(col):   return f"to_char({col}::timestamptz AT TIME ZONE 'Asia/Tokyo', 'MM')"
     NOW_YM   = "to_char(NOW() AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM')"
     TODAY    = "(NOW() AT TIME ZONE 'Asia/Tokyo')::date"
     WEEK_AGO = "(NOW() AT TIME ZONE 'Asia/Tokyo')::date - INTERVAL '7 days'"
     D30_AGO  = "(NOW() AT TIME ZONE 'Asia/Tokyo')::date - INTERVAL '30 days'"
     SERIAL   = "SERIAL PRIMARY KEY"
 else:
-    def _ym(col):   return f"strftime('%Y-%m', {col})"
+    # SQLiteはUTCで保存された値を 'localtime' でJSTに変換
+    def _ym(col):   return f"strftime('%Y-%m', {col}, 'localtime')"
     def _date(col): return f"date({col}, 'localtime')"
-    def _dow(col):  return f"CAST(strftime('%w', {col}) AS INTEGER)"
-    def _yr(col):   return f"strftime('%Y', {col})"
-    def _mo(col):   return f"strftime('%m', {col})"
+    def _dow(col):  return f"CAST(strftime('%w', {col}, 'localtime') AS INTEGER)"
+    def _yr(col):   return f"strftime('%Y', {col}, 'localtime')"
+    def _mo(col):   return f"strftime('%m', {col}, 'localtime')"
     NOW_YM   = "strftime('%Y-%m', 'now', 'localtime')"
     TODAY    = "date('now', 'localtime')"
     WEEK_AGO = "date('now', 'localtime', '-7 days')"
@@ -160,7 +163,7 @@ def start_session(uid: int = Depends(get_user_id)):
             "SELECT id FROM sessions WHERE end_time IS NULL AND user_id=:u"
         ), {"u": uid}).fetchone():
             raise HTTPException(400, "既にセッションが進行中です")
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         if IS_PG:
             row = conn.execute(
                 text("INSERT INTO sessions (user_id, start_time) VALUES (:u,:t) RETURNING id"),
@@ -184,12 +187,16 @@ def stop_session(uid: int = Depends(get_user_id)):
         ), {"u": uid}).mappings().fetchone()
         if not active:
             raise HTTPException(400, "進行中のセッションがありません")
-        now      = datetime.now()
-        duration = (now - datetime.fromisoformat(active["start_time"])).total_seconds() / 60
+        now = datetime.now(timezone.utc)
+        start = datetime.fromisoformat(active["start_time"])
+        if start.tzinfo is None:          # 旧形式（タイムゾーンなし）はUTCとして扱う
+            start = start.replace(tzinfo=timezone.utc)
+        duration = (now - start).total_seconds() / 60
+        end_str  = now.isoformat().replace('+00:00', 'Z')
         conn.execute(text(
             "UPDATE sessions SET end_time=:e, duration_minutes=:d WHERE id=:id AND user_id=:u"
-        ), {"e": now.isoformat(), "d": round(duration, 2), "id": active["id"], "u": uid})
-    return {"session_id": active["id"], "end_time": now.isoformat(), "duration_minutes": round(duration, 2)}
+        ), {"e": end_str, "d": round(duration, 2), "id": active["id"], "u": uid})
+    return {"session_id": active["id"], "end_time": end_str, "duration_minutes": round(duration, 2)}
 
 
 @app.get("/api/calendar/{year}/{month}")
@@ -306,7 +313,7 @@ def get_todos(uid: int = Depends(get_user_id)):
 @app.post("/api/todos")
 def create_todo(body: TodoBody, uid: int = Depends(get_user_id)):
     with get_db() as conn:
-        now = datetime.now().isoformat()
+        now    = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         params = {"u": uid, "t": body.title, "th": body.target_hours, "n": now}
         if IS_PG:
             row = conn.execute(text(
