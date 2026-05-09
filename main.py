@@ -362,6 +362,7 @@ def site_config():
         "adsense_id":    os.environ.get("ADSENSE_ID",    ""),
         "amazon_tag":    os.environ.get("AMAZON_TAG",    ""),
         "stripe_link":   os.environ.get("STRIPE_LINK",   ""),
+        "ga_id":         os.environ.get("GA_ID",         ""),
     }
 
 
